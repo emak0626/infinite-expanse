@@ -8,8 +8,10 @@ let activeStrategy = 'all';
 
 async function fetchData() {
     const list = document.getElementById('stock-list');
+    const indicator = document.querySelector('.status-indicator');
 
     try {
+        indicator.classList.add('loading');
         // Fetch screened data (which includes strategies metadata)
         const response = await fetch('/api/screening');
         currentStocks = await response.json();
@@ -20,6 +22,8 @@ async function fetchData() {
     } catch (error) {
         list.innerHTML = `<p style="text-align:center; color:var(--down-color);">CONNECTION ERROR</p>`;
         console.error('Error fetching stocks:', error);
+    } finally {
+        indicator.classList.remove('loading');
     }
 }
 
@@ -55,8 +59,12 @@ function renderHeatmap(stocks) {
             `rgba(63, 185, 80, ${0.3 + intensity * 0.7})` :
             `rgba(248, 81, 73, ${0.3 + intensity * 0.7})`;
 
+        // AI Score Badge for heatmap
+        const aiBadge = stock.ai_score ? `<span class="ai-mini-badge" style="background:${getScoreColor(stock.ai_score)}">${stock.ai_score}</span>` : '';
+
         div.style.backgroundColor = baseColor;
         div.innerHTML = `
+            ${aiBadge}
             <span class="symbol-code">${stock.symbol}</span>
             <span class="change-val">${stock.change_percent > 0 ? '+' : ''}${stock.change_percent}%</span>
         `;
@@ -276,11 +284,11 @@ function renderReport(data) {
             <span class="badge" style="background:var(--accent-color); color:white">SCORE: ${data.score}</span>
             <p style="font-weight:700; margin-top:10px">${content.summary || ''}</p>
         </div>
-        <div class="ai-reasoning">${parseMarkdown(content.reasoning || content.text || '')}</div>
+        <div class="ai-reasoning">${marked.parse(content.reasoning || content.text || '')}</div>
     `;
 
     if (content.risks) {
-        html += `<h3>RISKS</h3><ul>${content.risks.map(r => `<li>${r}</li>`).join('')}</ul>`;
+        html += `<h3>RISKS</h3><ul>${content.risks.map(r => `<li>${marked.parseInline(r)}</li>`).join('')}</ul>`;
     }
 
     reportDiv.innerHTML = html;

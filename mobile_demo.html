@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Infinite Expanse - Mobile Demo</title>
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        /* Bundled CSS */
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-color: #58a6ff;
+            --up-color: #3fb950;
+            --down-color: #f85149;
+            --border-color: #30363d;
+            --font-main: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            padding-bottom: 20px;
+            overscroll-behavior-y: none;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        h1 .highlight {
+            color: var(--accent-color);
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:active {
+            background-color: var(--border-color);
+            transform: scale(3.95);
+        }
+
+        .stock-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: transform 0.2s;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .stock-info h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .stock-info .code {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .price-box {
+            text-align: right;
+        }
+
+        .current-price {
+            font-family: var(--font-mono);
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: block;
+        }
+
+        .change-percent {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .up {
+            color: var(--up-color);
+        }
+
+        .down {
+            color: var(--down-color);
+        }
+
+        .badges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background-color: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            font-weight: 600;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .btn {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .btn:active {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-primary {
+            background: rgba(88, 166, 255, 0.15);
+            border-color: rgba(88, 166, 255, 0.4);
+            color: var(--accent-color);
+            grid-column: span 2;
+        }
+
+        /* Overlay */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(13, 17, 23, 0.98);
+            z-index: 1000;
+            display: none;
+            padding: 10px;
+        }
+
+        .overlay.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .overlay-content {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 1200px;
+            height: 95vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .overlay-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #overlay-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .split-pane {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .pane-left {
+            flex: 1.5;
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pane-right {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            background-color: rgba(255, 255, 255, 0.01);
+        }
+
+        #chart-container {
+            flex: 1;
+            min-height: 250px;
+        }
+
+        .markdown-body {
+            line-height: 1.6;
+            font-size: 0.95rem;
+        }
+
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3 {
+            margin-top: 24px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--accent-color);
+        }
+
+        /* Heatmap Styles */
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+
+        .heatmap-container {
+            margin-bottom: 20px;
+            background: var(--card-bg);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .heatmap-scroll {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: none;
+        }
+
+        .heatmap-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        .heat-cell {
+            min-width: 60px;
+            height: 60px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #fff;
+            flex-shrink: 0;
+            transition: transform 0.1s;
+            position: relative;
+        }
+
+        .heat-cell:active {
+            transform: scale(0.95);
+        }
+
+        .heat-cell .symbol-code {
+            font-size: 0.65rem;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+
+        .heat-cell .change-val {
+            font-size: 0.8rem;
+        }
+
+        .ai-mini-badge {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            font-size: 0.6rem;
+            padding: 1px 4px;
+            border-radius: 4px;
+            background: var(--accent-color);
+            color: #fff;
+            font-weight: 700;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        .strategy-tabs {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: var(--accent-color);
+            color: #fff;
+            border-color: var(--accent-color);
+        }
+
+        .meter-container {
+            width: 100%;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            margin-top: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .meter-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-color), #fff);
+            width: 0%;
+            transition: width 1s ease-out;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            margin-top: 8px;
+        }
+
+        .detail-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+
+        .detail-value {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #3fb950;
+            box-shadow: 0 0 8px rgba(63, 185, 80, 0.5);
+        }
+
+        .status-indicator.loading {
+            background: var(--accent-color) !important;
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from {
+                opacity: 0.4;
+                transform: scale(0.8);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1.2);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 12px;
+            }
+
+            h1 {
+                font-size: 1.1rem;
+            }
+
+            .stock-card {
+                padding: 12px;
+            }
+
+            .split-pane {
+                flex-direction: column;
+                overflow-y: auto;
+            }
+
+            .pane-left {
+                flex: none;
+                height: 300px;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+                padding: 10px;
+            }
+
+            .pane-right {
+                flex: none;
+                height: auto;
+                padding: 16px;
+            }
+
+            #chart-container {
+                min-height: 250px;
+            }
+
+            .actions {
+                grid-template-columns: 1fr;
+            }
+
+            .btn-primary {
+                grid-column: auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content" style="display: flex; align-items: center; gap: 10px;">
+                <h1>MARKET<span class="highlight">OVERSIGHT</span></h1>
+                <div class="status-indicator"></div>
+            </div>
+            <button id="refresh-btn" class="icon-btn" onclick="fetchData()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M1 20v-6h6"></path>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+            </button>
+        </header>
+
+        <div id="market-dashboard">
+            <div class="heatmap-container">
+                <div class="section-title">MARKET HEATMAP (AI INTEGRATED)</div>
+                <div id="heatmap-scroll" class="heatmap-scroll">
+                    <!-- Injected via JS -->
+                </div>
+            </div>
+
+            <div class="strategy-tabs">
+                <button class="tab-btn active" data-strategy="all">ALL</button>
+                <button class="tab-btn" data-strategy="value_invest">💎 割安</button>
+                <button class="tab-btn" data-strategy="high_dividend">💰 高配当</button>
+                <button class="tab-btn" data-strategy="short_squeeze">🔥 需給</button>
+                <button class="tab-btn" data-strategy="rebound">⚡ リバ反</button>
+            </div>
+        </div>
+
+        <main id="stock-list">
+            <!-- Injected via JS -->
+        </main>
+    </div>
+
+    <!-- Analysis Detail View -->
+    <div id="analysis-overlay" class="overlay">
+        <div class="overlay-content">
+            <header class="overlay-header">
+                <div id="overlay-title">ANALYSIS VIEW</div>
+                <button class="icon-btn" onclick="closeAnalysis()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </header>
+            <div class="split-pane">
+                <div class="pane-left">
+                    <div id="chart-container"></div>
+                </div>
+                <div class="pane-right">
+                    <div id="report-content" class="markdown-body">
+                        <!-- AI Report Injected Here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Mock Data ---
+        const MOCK_STOCKS = [
+            { symbol: "7203", symbolname: "トヨタ自動車", currentprice: 3450, change_percent: 2.4, ai_score: 8.5, rsi: 62, matched_strategies: ["rebound"] },
+            { symbol: "9984", symbolname: "ソフトバンクG", currentprice: 8900, change_percent: -1.2, ai_score: 4.2, rsi: 45, matched_strategies: ["short_squeeze"] },
+            { symbol: "6758", symbolname: "ソニーG", currentprice: 12800, change_percent: 0.8, ai_score: 7.0, rsi: 55, matched_strategies: ["value_invest"] },
+            { symbol: "8035", symbolname: "東京エレクトロン", currentprice: 35200, change_percent: 4.5, ai_score: 9.2, rsi: 78, matched_strategies: ["rebound", "short_squeeze"] },
+            { symbol: "9101", symbolname: "日本郵船", currentprice: 4800, change_percent: -3.5, ai_score: 3.1, rsi: 28, matched_strategies: ["high_dividend"] },
+            { symbol: "8306", symbolname: "三菱UFJ", currentprice: 1580, change_percent: 1.5, ai_score: 6.8, rsi: 58, matched_strategies: ["value_invest", "high_dividend"] }
+        ];
+
+        const MOCK_REPORTS = {
+            "7203": { score: 8.5, content: { summary: "主要移動平均線上での反発を確認。円安進行も追い風。", reasoning: "### テクニカル分析\n- **25日移動平均線**をサポートに強い陽線が出現。\n- **RSI**は過熱感なく、上昇余地あり。\n\n### ファンダメンタル分析\n- 来期の業績予想がコンセンサスを上回る可能性が高い。\n- 株主還元策の強化が期待される。", risks: ["米国経済の減速懸念", "為替の大幅な変動"], opportunities: ["次世代バッテリーの技術発表"] } },
+            "8035": { score: 9.2, content: { summary: "半導体需要の再燃により、新高値を更新。ショートスクイーズの兆候。", reasoning: "### 需給分析\n- **信用倍率**が低下しており、踏み上げが期待できる構造。\n- 海外投資家の買い越しが継続。\n\n### 成長性\n- AI向け製造装置の受注が想定を大幅に上回っている。", risks: ["輸出規制の強化"], opportunities: ["次世代プロセス向けの独占的供給"] } }
+        };
+
+        // --- Logic ---
+        let currentStocks = MOCK_STOCKS;
+        let activeStrategy = 'all';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+            setupTabs();
+        });
+
+        function fetchData() {
+            const indicator = document.querySelector('.status-indicator');
+            indicator.classList.add('loading');
+            setTimeout(() => {
+                renderHeatmap(currentStocks);
+                renderStocks();
+                indicator.classList.remove('loading');
+            }, 800);
+        }
+
+        function setupTabs() {
+            const tabs = document.querySelectorAll('.tab-btn');
+            tabs.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    tabs.forEach(t => t.classList.remove('active'));
+                    btn.classList.add('active');
+                    activeStrategy = btn.dataset.strategy;
+                    renderStocks();
+                });
+            });
+        }
+
+        function getScoreColor(score) {
+            if (!score) return '#8b949e';
+            if (score >= 7) return '#3fb950';
+            if (score <= 4) return '#f85149';
+            return '#58a6ff';
+        }
+
+        function renderHeatmap(stocks) {
+            const container = document.getElementById('heatmap-scroll');
+            container.innerHTML = '';
+            const sorted = [...stocks].sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent));
+            sorted.forEach(stock => {
+                const div = document.createElement('div');
+                div.className = 'heat-cell';
+                const intensity = Math.min(Math.abs(stock.change_percent) / 5, 1);
+                const baseColor = stock.change_percent >= 0 ? `rgba(63, 185, 80, ${0.3 + intensity * 0.7})` : `rgba(248, 81, 73, ${0.3 + intensity * 0.7})`;
+                const aiBadge = stock.ai_score ? `<span class="ai-mini-badge" style="background:${getScoreColor(stock.ai_score)}">${stock.ai_score}</span>` : '';
+                div.style.backgroundColor = baseColor;
+                div.innerHTML = `${aiBadge}<span class="symbol-code">${stock.symbol}</span><span class="change-val">${stock.change_percent > 0 ? '+' : ''}${stock.change_percent}%</span>`;
+                div.onclick = () => document.getElementById(`card-${stock.symbol}`).scrollIntoView({ behavior: "smooth" });
+                container.appendChild(div);
+            });
+        }
+
+        function renderStocks() {
+            const list = document.getElementById('stock-list');
+            list.innerHTML = '';
+            const filtered = activeStrategy === 'all' ? currentStocks : currentStocks.filter(s => s.matched_strategies.includes(activeStrategy));
+            filtered.forEach(stock => {
+                const colorClass = stock.change_percent >= 0 ? 'up' : 'down';
+                const btnHtml = `<button class="btn" onclick="viewReport('${stock.symbol}')">📄 レポート</button>`;
+                const card = document.createElement('div');
+                card.id = `card-${stock.symbol}`;
+                card.className = 'stock-card';
+                card.innerHTML = `
+                    <div class="card-header">
+                        <div class="stock-info"><h2>${stock.symbolname}</h2><span class="code">${stock.symbol}</span></div>
+                        <div class="price-box"><span class="current-price ${colorClass}">${stock.currentprice.toLocaleString()}</span><span class="change-percent ${colorClass}">${stock.change_percent > 0 ? '+' : ''}${stock.change_percent}%</span></div>
+                    </div>
+                    <div class="badges">${stock.matched_strategies.map(st => `<span class="badge">${st}</span>`).join('')}</div>
+                    <div class="detail-item"><span class="detail-label">AI SCORE</span><span class="detail-value" style="color:${getScoreColor(stock.ai_score)}">${stock.ai_score}</span></div>
+                    <div class="actions"><button class="btn btn-primary">✨ プロンプト (Demo)</button>${btnHtml}</div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        async function viewReport(symbol) {
+            const overlay = document.getElementById('analysis-overlay');
+            const reportDiv = document.getElementById('report-content');
+            overlay.classList.add('active');
+            reportDiv.innerHTML = '<p>Loading Demo Data...</p>';
+            setTimeout(() => {
+                const data = MOCK_REPORTS[symbol] || { score: 5.0, content: { summary: "データなし", reasoning: "デモ用モックです。" } };
+                renderChart();
+                reportDiv.innerHTML = `<h2>AI SCORE: ${data.score}</h2><p>${data.content.summary}</p><div style="margin-top:20px">${marked.parse(data.content.reasoning)}</div>`;
+            }, 500);
+        }
+
+        function closeAnalysis() { document.getElementById('analysis-overlay').classList.remove('active'); }
+
+        function renderChart() {
+            const container = document.querySelector("#chart-container");
+            container.innerHTML = "";
+            new ApexCharts(container, {
+                series: [{ data: Array.from({ length: 15 }, (_, i) => ({ x: new Date(Date.now() - (15 - i) * 86400000), y: [3000 + Math.random() * 200, 3200 + Math.random() * 200, 2900 + Math.random() * 200, 3100 + Math.random() * 200] })) }],
+                chart: { type: 'candlestick', height: '100%', background: 'transparent' }, theme: { mode: 'dark' }, xaxis: { type: 'datetime' }
+            }).render();
+        }
+    </script>
+</body>
+
+</html>

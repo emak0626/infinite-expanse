@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from config import settings
 from models_db import AnalysisReport, StockMaster
 import json
@@ -6,27 +7,33 @@ import asyncio
 
 class GeminiAgent:
     def __init__(self):
-        if not settings.GEMINI_API_KEY:
-            print("Warning: GEMINI_API_KEY not found in environment variables.")
+        self.client = None
+        if settings.GEMINI_API_KEY:
+            self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        else:
+            print("Warning: GEMINI_API_KEY not found. AI analysis will be unavailable.")
         
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        
-        # Using 1.5 Pro for deep analysis
-        self.model = genai.GenerativeModel(
-            model_name='gemini-1.5-pro-latest',
-            generation_config={"response_mime_type": "application/json"}
-        )
+        self.model_id = 'gemini-2.0-flash'
 
     async def analyze(self, stock: StockMaster, context_data: str, thinking_level: str = "standard") -> dict:
         """
         Analyzes stock data and returns a structured JSON report.
         """
-        
+        if not self.client:
+            return {"error": "Gemini API key not configured", "symbol": stock.symbol, "score": 0}
+
         prompt = self._build_prompt(stock.symbol, stock.name, context_data, thinking_level)
         
         try:
-            # Run in executor to avoid blocking async loop (SDK might be blocking)
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            # Run in executor to avoid blocking async loop
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.model_id,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                )
+            )
             
             return json.loads(response.text)
         except Exception as e:

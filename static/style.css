@@ -22,7 +22,9 @@ body {
     background-color: var(--bg-color);
     color: var(--text-primary);
     font-family: var(--font-main);
-    padding-bottom: 40px;
+    padding-bottom: 20px;
+    overscroll-behavior-y: none;
+    /* スマホのプルリフレッシュを防止 */
 }
 
 .container {
@@ -113,8 +115,13 @@ h1 .highlight {
     font-weight: 600;
 }
 
-.up { color: var(--up-color); }
-.down { color: var(--down-color); }
+.up {
+    color: var(--up-color);
+}
+
+.down {
+    color: var(--down-color);
+}
 
 /* Badges */
 .badges {
@@ -144,7 +151,7 @@ h1 .highlight {
     padding: 10px;
     border-radius: 8px;
     border: 1px solid var(--border-color);
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
     color: var(--text-primary);
     font-size: 0.9rem;
     font-weight: 500;
@@ -158,7 +165,7 @@ h1 .highlight {
 }
 
 .btn:active {
-    background: rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .btn-primary {
@@ -186,8 +193,13 @@ h1 .highlight {
 }
 
 @keyframes scan {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
 }
 
 /* Analysis Overlay */
@@ -197,10 +209,11 @@ h1 .highlight {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(13, 17, 23, 0.95);
+    background-color: rgba(13, 17, 23, 0.98);
     z-index: 1000;
-    display: none; /* Hidden by default */
-    padding: 20px;
+    display: none;
+    /* Hidden by default */
+    padding: 10px;
 }
 
 .overlay.active {
@@ -212,14 +225,14 @@ h1 .highlight {
 .overlay-content {
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: 12px;
     width: 100%;
     max-width: 1200px;
-    height: 90vh;
+    height: 95vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
 }
 
 .overlay-header {
@@ -254,7 +267,7 @@ h1 .highlight {
     flex: 1;
     padding: 24px;
     overflow-y: auto;
-    background-color: rgba(255,255,255,0.01);
+    background-color: rgba(255, 255, 255, 0.01);
 }
 
 #chart-container {
@@ -268,7 +281,8 @@ h1 .highlight {
     font-size: 0.95rem;
 }
 
-.markdown-body h1, .markdown-body h2 {
+.markdown-body h1,
+.markdown-body h2 {
     margin-top: 24px;
     margin-bottom: 16px;
     padding-bottom: 8px;
@@ -276,11 +290,75 @@ h1 .highlight {
     color: var(--accent-color);
 }
 
-.markdown-body p { margin-bottom: 16px; }
-.markdown-body ul { padding-left: 20px; margin-bottom: 16px; }
+.markdown-body p {
+    margin-bottom: 16px;
+}
 
-@media (max-width: 900px) {
-    .split-pane { flex-direction: column; overflow-y: auto; }
-    .pane-left { flex: none; height: 350px; border-right: none; border-bottom: 1px solid var(--border-color); }
-    .pane-right { flex: none; height: auto; }
+.markdown-body ul {
+    padding-left: 20px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 600px) {
+    .container {
+        padding: 12px;
+    }
+
+    h1 {
+        font-size: 1.1rem;
+    }
+
+    .stock-card {
+        padding: 12px;
+    }
+
+    .split-pane {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .pane-left {
+        flex: none;
+        height: 300px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 10px;
+    }
+
+    .pane-right {
+        flex: none;
+        height: auto;
+        padding: 16px;
+    }
+
+    #chart-container {
+        min-height: 250px;
+    }
+
+    .actions {
+        grid-template-columns: 1fr;
+    }
+
+    .btn-primary {
+        grid-column: auto;
+    }
+}
+
+@media (min-width: 601px) and (max-width: 900px) {
+    .split-pane {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .pane-left {
+        flex: none;
+        height: 350px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .pane-right {
+        flex: none;
+        height: auto;
+    }
 }

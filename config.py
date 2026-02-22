@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     
     @property
     def DATABASE_URL(self) -> str:
+        if os.getenv("USE_SQLITE", "True").lower() == "true":
+            return "sqlite+aiosqlite:///./stock.db"
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     # Application Settings
