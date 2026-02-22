@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+requests
+pydantic
+pydantic-settings
+jinja2
+asyncpg
+sqlalchemy
+alembic
+google-generativeai
+pytest
+APScheduler

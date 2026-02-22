@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Infinite Expanse</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style_components.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>MARKET<span class="highlight">OVERSIGHT</span></h1>
+                <div class="status-indicator"></div>
+            </div>
+            <button id="refresh-btn" class="icon-btn" onclick="fetchStocks()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M1 20v-6h6"></path>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+            </button>
+        </header>
+
+        <div id="market-dashboard">
+            <!-- Market Heatmap Scope -->
+            <div class="heatmap-container">
+                <div class="section-title">MARKET HEATMAP</div>
+                <div id="heatmap-scroll" class="heatmap-scroll">
+                    <!-- Injected via JS -->
+                </div>
+            </div>
+
+            <!-- Strategy Filters -->
+            <div class="strategy-tabs">
+                <button class="tab-btn active" data-strategy="all">ALL</button>
+                <button class="tab-btn" data-strategy="value_invest">💎 割安</button>
+                <button class="tab-btn" data-strategy="high_dividend">💰 高配当</button>
+                <button class="tab-btn" data-strategy="short_squeeze">🔥 需給</button>
+                <button class="tab-btn" data-strategy="rebound">⚡ リバ反</button>
+            </div>
+        </div>
+
+        <main id="stock-list">
+            <!-- Loading State -->
+            <div class="loading-state">
+                <div class="scanner"></div>
+                <p>SCANNING MARKET DATA...</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Analysis Detail View (Overlay) -->
+    <div id="analysis-overlay" class="overlay">
+        <div class="overlay-content">
+            <header class="overlay-header">
+                <div id="overlay-title">ANALYSIS VIEW</div>
+                <button class="icon-btn" onclick="closeAnalysis()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </header>
+            <div class="split-pane">
+                <div class="pane-left">
+                    <div id="chart-container"></div>
+                </div>
+                <div class="pane-right">
+                    <div id="report-content" class="markdown-body">
+                        <!-- AI Report Injected Here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden textarea for clipboard operations -->
+    <textarea id="clipboard-area" style="position: absolute; left: -9999px;"></textarea>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

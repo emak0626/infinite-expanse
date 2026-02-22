@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # Python Backend App
+  app:
+    build: .
+    container_name: infinite_expanse_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - timescaledb
+    environment:
+      - POSTGRES_HOST=timescaledb
+      - KABU_API_HOST=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Critical for Linux containers to talk to Windows Host
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # TimescaleDB (PostgreSQL)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: infinite_expanse_db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=stock_analysis
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  timescaledb_data:
