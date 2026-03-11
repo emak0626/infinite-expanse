@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     
     # Gemini API
     GEMINI_API_KEY: str = ""
+    GEMINI_MODEL_ID: str = "gemini-2.0-flash"
     
     # Database Settings
     POSTGRES_USER: str = "user"

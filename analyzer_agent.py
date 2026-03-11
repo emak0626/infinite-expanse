@@ -13,7 +13,7 @@ class GeminiAgent:
         else:
             print("Warning: GEMINI_API_KEY not found. AI analysis will be unavailable.")
         
-        self.model_id = 'gemini-2.0-flash'
+        self.model_id = settings.GEMINI_MODEL_ID
 
     async def analyze(self, stock: StockMaster, context_data: str, thinking_level: str = "standard") -> dict:
         """
