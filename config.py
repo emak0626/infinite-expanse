@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     MOCK_MODE: bool = True
     WATCHLIST: list = ["7203", "9984", "6758", "8035", "5401", "9101"] 
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=os.path.join(os.path.dirname(__file__), ".env"),
+        env_file_encoding="utf-8", 
+        extra="ignore"
+    )
 
 settings = Settings()
