@@ -1,38 +1,29 @@
-from kabu_api import KabuApiClient
-from config import settings
-import sys
+import google_auth
+from googleapiclient.errors import HttpError
 
-def test_connection():
-    print(f"--- API Connection Test (Auto-Discovery) ---")
-    
-    ports = [18080, 18081]
-    password = settings.KABU_API_PASSWORD
-    print(f"Loaded password starts with: {password[:2]}... (length: {len(password)})")
-    
-    for port in ports:
-        print(f"\n--- Trying port {port} ---")
-        client = KabuApiClient(mock_mode=False)
-        client.base_url = f"http://localhost:{port}/kabusapi"
-        
-        try:
-            # Example symbol (TOYOTA)
-            symbol = "7203"
-            print(f"Fetching board data for {symbol} using port {port}...")
-            data = client.get_board(symbol)
-            
-            if "Mock" not in data.symbolname:
-                print(f"Successfully connected to REAL API on port {port}!")
-                print(f"Symbol: {data.symbolname} ({data.symbol})")
-                print(f"Current Price: {data.currentprice}")
-                return # Exit on first success
-            else:
-                print(f"Port {port} responded but returned mock data (likely due to error during fetch).")
-                
-        except Exception as e:
-            print(f"Failed to connect to port {port}: {e}")
-            
-    print("\n[!] All attempts failed. Please ensure Kabu Station is running and API is enabled.")
-    print("Check if the port is 'Standard' (usually 18080/18081) or if you are using HTTPS (443).")
+def test_apis():
+    print("Testing Google Drive API...")
+    try:
+        drive_service = google_auth.get_drive_service()
+        about = drive_service.about().get(fields="user").execute()
+        print(f"Drive API Auth Success! Service Account Email: {about['user']['emailAddress']}")
+    except HttpError as e:
+        print(f"Drive API Error: {e}")
+        return False
+    except Exception as e:
+        print(f"Unknown Error: {e}")
+        return False
+
+    print("\nTesting Google Sheets API...")
+    try:
+        sheets_client = google_auth.get_sheets_client()
+        # This just authorizes, let's try opening a dummy spreadsheet
+        print("Sheets API Auth Success! (Note: Further tests require an existing sheet ID)")
+    except Exception as e:
+        print(f"Sheets API Error: {e}")
+        return False
+
+    return True
 
 if __name__ == "__main__":
-    test_connection()
+    test_apis()

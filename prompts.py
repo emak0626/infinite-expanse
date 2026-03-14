@@ -37,6 +37,35 @@ VWAPに対して{"上" if stock.currentprice > (stock.vwap or 0) else "下"}に�
 ※簡潔なMarkdown形式で出力してください。
 """
 
+def generate_bulk_analysis_prompt(stocks: list[StockData]) -> str:
+    """Generates a prompt for bulk stock screening and ranking."""
+    stock_rows = []
+    for s in stocks:
+        row = f"| {s.symbol} | {s.symbolname} | {s.currentprice} | {s.change_percent}% | {s.per or 'N/A'} | {s.pbr or 'N/A'} | {s.rsi or 'N/A'} | {s.credit_ratio or 'N/A'} |"
+        stock_rows.append(row)
+    
+    table_header = "| 銘柄コード | 銘柄名 | 現在値 | 前日比 | PER | PBR | RSI | 信用倍率 |\n|---|---|---|---|---|---|---|---|"
+    stock_table = "\n".join(stock_rows)
+    
+    return f"""
+# 大量銘柄の一括スクリーニング依頼
+
+以下の銘柄リスト（計{len(stocks)}銘柄）のマーケットデータを分析し、テクニカル・ファンダメンタルの両面から「今、最も投資妙味がある銘柄」を**上位5位まで**選別・ランク付けしてください。
+
+## 銘柄データリスト
+{table_header}
+{stock_table}
+
+## 分析の指針
+1. **総合評価**: ボラティリティ、需給（信用倍率）、割安性（PER/PBR）、過熱感（RSI）を総合的に判断してください。
+2. **短期的な期待値**: 単なる値上がり率ではなく、需給の軽さやテクニカル的な反発の兆しなどを重視してください。
+3. **リスクの指摘**: 上位に選んだ銘柄について、注意すべき下値リスクも簡潔に併記してください。
+
+## 出力形式
+- 1位〜5位までのランキング形式
+- 各銘柄について「選定理由」と「短期的な目標/注意点」をMarkdown形式で簡潔に出力してください。
+"""
+
 def generate_quick_alert(stock: StockData) -> str:
     """Generates a short alert message."""
     reason = "急騰/急落" if abs(stock.change_percent) > 3 else "出来高急増"

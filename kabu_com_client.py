@@ -9,6 +9,7 @@ class KabucomClient:
         self.password = settings.KABU_API_PASSWORD
         self.token = None
         self.token_expiry = None
+        self.host_header = f"localhost:{settings.KABU_API_PORT}"
 
     def _get_token(self):
         """
@@ -18,7 +19,10 @@ class KabucomClient:
             return self.token
 
         url = f"{self.base_url}/token"
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Host": self.host_header
+        }
         payload = {"APIPassword": self.password}
         
         try:
@@ -40,7 +44,10 @@ class KabucomClient:
         """
         token = self._get_token()
         url = f"{self.base_url}/board/{symbol}@{exchange}"
-        headers = {"X-API-KEY": token}
+        headers = {
+            "X-API-KEY": token,
+            "Host": self.host_header
+        }
         
         try:
             response = requests.get(url, headers=headers, timeout=5)
@@ -56,7 +63,10 @@ class KabucomClient:
         """
         token = self._get_token()
         url = f"{self.base_url}/wallet/margin" # Verify endpoint in official docs
-        headers = {"X-API-KEY": token}
+        headers = {
+            "X-API-KEY": token,
+            "Host": self.host_header
+        }
         
         try:
             response = requests.get(url, headers=headers, timeout=5)

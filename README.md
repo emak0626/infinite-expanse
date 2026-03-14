@@ -24,10 +24,11 @@ AI（Google Gemini）とkabuステーション®APIを連携させた、株式�
 ### 2. 環境変数の設定
 
 ```powershell
-copy .env.example .env
-```
+# セットアップガイド
 
-`.env` を開いて以下を設定：
+1. `.env.example` をコピーして `.env` を作成します。
+2. `.env` 内の各項目（Gemini APIキー、kabuステーションAPIパスワード等）を自身の環境に合わせて設定してください。
+3. **注意**: `.env` ファイルは絶対にGitにコミットしないでください（`.gitignore` で除外されています）。
 
 ```env
 GEMINI_API_KEY=your_api_key_from_google_ai_studio

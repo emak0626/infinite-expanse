@@ -47,8 +47,19 @@ class AnalysisReport(Base):
     symbol: Mapped[str] = mapped_column(ForeignKey("stock_masters.symbol"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
-    report_content: Mapped[str] = mapped_column(Text) # Markdown or Structured Text
+    report_content: Mapped[str] = mapped_column(Text) # Detailed Markdown content
     score: Mapped[Optional[float]] = mapped_column(Float)
     thinking_level: Mapped[str] = mapped_column(String(20), default="standard") # low, standard, high
     
+    # Summary fields for quick display
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    sentiment: Mapped[Optional[str]] = mapped_column(String(20)) # bullish, bearish, neutral
+    
     stock: Mapped["StockMaster"] = relationship(back_populates="reports")
+
+class UserWatchlist(Base):
+    __tablename__ = "user_watchlists"
+    
+    symbol: Mapped[str] = mapped_column(String(10), primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    notes: Mapped[Optional[str]] = mapped_column(Text)

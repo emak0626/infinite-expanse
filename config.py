@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     # Gemini API
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL_ID: str = "gemini-2.0-flash"
+
+    # Web Authentication
+    WEB_USERNAME: str = "admin"
+    WEB_PASSWORD: str = "infinity"
     
     # Database Settings
     POSTGRES_USER: str = "user"
@@ -27,7 +31,12 @@ class Settings(BaseSettings):
 
     # Application Settings
     MOCK_MODE: bool = True
-    WATCHLIST: list = ["7203", "9984", "6758", "8035", "5401", "9101"] 
+    WATCHLIST: list = [
+        "7203", "9984", "6758", "8035", "5401", 
+        "9101", "8306", "8316", "7267", "6501",
+        "6702", "7751", "4502", "4503", "6954",
+        "6098", "6367", "6861", "7974", "9432"
+    ]
 
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(__file__), ".env"),

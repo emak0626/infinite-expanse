@@ -1,6 +1,6 @@
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from models_db import StockMaster, StockPrice, AnalysisReport
+from models_db import StockMaster, StockPrice, AnalysisReport, UserWatchlist
 from datetime import datetime
 
 class StockRepository:
@@ -44,3 +44,51 @@ class StockRepository:
         stmt = select(AnalysisReport).where(AnalysisReport.symbol == symbol).order_by(desc(AnalysisReport.created_at)).limit(1)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_analysis_history(self, symbol: str) -> list[AnalysisReport]:
+        stmt = select(AnalysisReport).where(AnalysisReport.symbol == symbol).order_by(desc(AnalysisReport.created_at))
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_analysis_by_id(self, report_id: int) -> AnalysisReport:
+        stmt = select(AnalysisReport).where(AnalysisReport.id == report_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def save_analysis(self, symbol: str, content: str, score: float, thinking_level: str, summary: str = None, sentiment: str = None):
+        new_report = AnalysisReport(
+            symbol=symbol,
+            report_content=content,
+            score=score,
+            thinking_level=thinking_level,
+            summary=summary,
+            sentiment=sentiment,
+            created_at=datetime.now()
+        )
+        self.session.add(new_report)
+        await self.session.commit()
+
+    # --- Watchlist Management ---
+    async def get_watchlist_symbols(self) -> list[str]:
+        stmt = select(UserWatchlist.symbol).order_by(UserWatchlist.added_at.desc())
+        result = await self.session.execute(stmt)
+        return [row[0] for row in result.all()]
+
+    async def add_to_watchlist(self, symbol: str, notes: str = None):
+        # First ensure stock master exists
+        await self.get_or_create_stock(symbol)
+        
+        stmt = select(UserWatchlist).where(UserWatchlist.symbol == symbol)
+        result = await self.session.execute(stmt)
+        if not result.scalar_one_or_none():
+            new_item = UserWatchlist(symbol=symbol, notes=notes)
+            self.session.add(new_item)
+            await self.session.commit()
+
+    async def remove_from_watchlist(self, symbol: str):
+        stmt = select(UserWatchlist).where(UserWatchlist.symbol == symbol)
+        result = await self.session.execute(stmt)
+        item = result.scalar_one_or_none()
+        if item:
+            await self.session.delete(item)
+            await self.session.commit()

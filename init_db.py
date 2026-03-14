@@ -1,7 +1,7 @@
 import asyncio
 from sqlalchemy import text
 from database import engine, Base
-from models_db import StockMaster, StockPrice, AnalysisReport
+from models_db import StockMaster, StockPrice, AnalysisReport, UserWatchlist
 from config import settings
 
 async def init_db():

@@ -32,6 +32,8 @@ class StockData(BaseModel):
     # AI Results
     ai_score: Optional[float] = None
     ai_sentiment: Optional[str] = None
+    ai_summary: Optional[str] = None
+    ai_thinking: Optional[str] = None # low, standard, high
 
 class AnalysisRequest(BaseModel):
     symbol: str

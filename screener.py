@@ -40,11 +40,10 @@ class Screener:
             if (stock.rsi is not None and stock.rsi <= params["rsi_max"]):
                 matched.append("rebound")
             
-            # If any strategy matched, add to results with tags
-            if matched:
-                stock_dict = stock.dict()
-                stock_dict["matched_strategies"] = matched
-                results.append(stock_dict)
+            # Always add to results, with tags
+            stock_dict = stock.dict()
+            stock_dict["matched_strategies"] = matched
+            results.append(stock_dict)
                 
         return results
 

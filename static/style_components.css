@@ -183,6 +183,31 @@
     transition: background 0.3s;
 }
 
+/* AI Reasoning Preview on card */
+.ai-reasoning-preview {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 10px 0;
+    line-height: 1.4;
+    border-left: 3px solid var(--accent-color);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.stock-card .card-body {
+    padding: 8px 0;
+}
+
+.stock-card .btn-sm {
+    font-size: 0.7rem;
+    padding: 4px 8px;
+}
+
 .status-indicator.loading {
     background: var(--accent-color) !important;
     animation: pulse 1s infinite alternate;

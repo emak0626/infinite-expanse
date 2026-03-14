@@ -10,3 +10,7 @@ alembic
 google-genai
 pytest
 APScheduler
+pandas
+gspread
+google-api-python-client
+google-auth

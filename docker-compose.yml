@@ -9,6 +9,8 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+    env_file:
+      - .env
     depends_on:
       - timescaledb
     environment:
@@ -16,7 +18,7 @@ services:
       - KABU_API_HOST=host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway" # Critical for Linux containers to talk to Windows Host
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-exclude ".git*"
 
   # TimescaleDB (PostgreSQL)
   timescaledb:
@@ -29,7 +31,7 @@ services:
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=stock_analysis
     volumes:
-      - timescaledb_data:/var/lib/postgresql/data
+      - D:\infinite-expanse-data\timescaledb:/var/lib/postgresql/data
     restart: unless-stopped
 
 volumes:
