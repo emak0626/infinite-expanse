@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -47,6 +47,7 @@ def get_cached_board(symbol):
     return data
 
 screener = Screener()
+market_screener = BulkScreener()
 
 from scheduler import start_scheduler
 from drive_manager import DriveManager
@@ -513,3 +514,11 @@ async def get_workspace_links(username: str = Depends(authenticate)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/api/admin/scan-market")
+async def trigger_market_scan(background_tasks: BackgroundTasks):
+    """
+    Admin endpoint to trigger a full market hybrid scan.
+    """
+    background_tasks.add_task(market_screener.run_market_scan)
+    return {"message": "Market scan started in background."}

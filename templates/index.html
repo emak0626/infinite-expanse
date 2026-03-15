@@ -15,135 +15,74 @@
 </head>
 
 <body>
-    <div class="container">
-        <header>
+    <div class="container animate-in">
+        <header class="glass-header">
             <div class="header-content">
-                <h1>MARKET<span class="highlight">OVERSIGHT</span></h1>
-                <div class="status-container" style="display: flex; align-items: center; gap: 8px;">
-                    <div id="db-status" class="status-indicator mini" title="Database Status"></div>
-                    <div id="api-status" class="status-indicator mini" title="Kabu API Status"></div>
+                <h1>INFINITE<span class="highlight">EXPANSE</span></h1>
+                <div class="status-dots" style="display: flex; gap: 4px; margin-top: 4px;">
+                    <div id="db-status" class="status-indicator online" title="DB"></div>
+                    <div id="api-status" class="status-indicator online" title="API"></div>
                 </div>
             </div>
-            <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
-                <div id="workspace-links" style="display: none; gap: 8px; margin-right: 10px;">
-                    <a id="sheet-link" href="#" target="_blank" class="icon-link" title="Open Master Watchlist (Google Sheets)">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#0F9D58">
-                            <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-                        </svg>
-                    </a>
-                    <a id="drive-link" href="#" target="_blank" class="icon-link" title="Open Drive Folder">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#4285F4">
-                            <path d="M15.25 15.25L10.75 22.17C10.5 22.5 10.12 22.5 9.75 22.17L2.25 9.17C2 8.84 2 8.35 2.25 8.16L6.75 1.25C7 0.92 7.38 0.92 7.75 1.25L15.25 14.25C15.5 14.58 15.5 15.07 15.25 15.25Z" fill="#FBBC04"/>
-                            <path d="M21.75 15.25L17.25 22.17C17 22.5 16.62 22.5 16.25 22.17L8.75 9.17C8.5 8.84 8.5 8.35 8.75 8.16L13.25 1.25C13.5 0.92 13.88 0.92 14.25 1.25L21.75 14.25C22 14.58 22 15.07 21.75 15.25Z" fill="#34A853"/>
-                            <path d="M18.25 7.25C18.25 6.92 17.87 6.92 17.62 7.25L10.12 20.25C9.87 20.58 9.87 21.07 10.12 21.25L14.62 22.17C14.87 22.5 15.25 22.5 15.62 22.17L23.12 9.17C23.37 8.84 23.37 8.35 23.12 8.16L18.62 7.25H18.25Z" fill="#4285F4"/>
-                            <path d="M15.3 14.5L11 21.7L11.75 22.1L16 15L15.3 14.5Z" fill="#2A82C9"/>
-                        </svg>
-                    </a>
+            <div class="header-actions">
+                <div id="workspace-links" style="display: none; align-items: center; gap: 8px; margin-right: 12px;">
+                    <a id="sheet-link" href="#" target="_blank" class="glass-icon" title="Sheets">📊</a>
+                    <a id="drive-link" href="#" target="_blank" class="glass-icon" title="Drive">📁</a>
                 </div>
-                <button class="btn btn-primary btn-sm" onclick="copyBulkPrompt(event)" style="padding: 4px 12px; font-size: 0.75rem;">⚡ 一括スキャン</button>
+                <button id="scan-market-btn" class="btn btn-primary btn-sm" onclick="triggerMarketScan()" title="全市場スキャン開始">📡 SCAN</button>
                 <button id="refresh-btn" class="icon-btn" onclick="fetchStocks()">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M23 4v6h-6"></path>
-                        <path d="M1 20v-6h6"></path>
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                    </svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                 </button>
             </div>
         </header>
 
-        <!-- Search and Action Bar -->
-        <div class="action-bar card" style="margin-bottom: 20px; padding: 12px 20px; display: flex; gap: 15px; align-items: center;">
-            <div class="search-box" style="flex: 1; position: relative;">
-                <input type="text" id="symbol-search" placeholder="銘柄コード(4桁)を入力して追加..." 
-                       maxlength="4" style="width: 100%; padding: 10px 15px 10px 40px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white;">
-                <svg style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted);" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
+        <!-- Search Bar -->
+        <div class="action-bar" style="margin: 16px 0;">
+            <div class="search-box-wrapper">
+                <input type="text" id="symbol-search" placeholder="銘柄コードを入力..." maxlength="4">
+                <button class="add-btn" onclick="searchAndAddStock()">➕</button>
             </div>
-            <button class="btn btn-primary" onclick="searchAndAddStock()" style="white-space: nowrap;">➕ 追加</button>
-            <button class="btn btn-outline" onclick="exportForNotebookLM()" title="NotebookLM用データ出力">📋 出力</button>
         </div>
 
         <div id="market-dashboard">
-            <!-- Workspace Console -->
-            <div id="workspace-console" class="card" style="margin-bottom: 20px; display: none; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);">
-                <div class="card-header" style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                    <h3 style="margin: 0; font-size: 0.8rem; color: var(--accent); letter-spacing: 1px;">WORKSPACE CONSOLE</h3>
-                </div>
-                <div class="card-body" style="display: flex; gap: 30px; padding: 15px 20px; flex-wrap: wrap;">
-                    <div class="workspace-item" style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">MASTER WATCHLIST:</span>
-                        <a id="sheet-link-large" href="#" target="_blank" class="btn btn-outline btn-sm" style="color: #0F9D58; border-color: #0F9D58;">Sheetsで開く</a>
-                    </div>
-                    <div class="workspace-item" style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">AI REPORTS:</span>
-                        <a id="drive-link-large" href="#" target="_blank" class="btn btn-outline btn-sm" style="color: #4285F4; border-color: #4285F4;">Driveで開く</a>
-                    </div>
-                </div>
+            <!-- Heatmap -->
+            <div class="section-title">Market Pulse</div>
+            <div id="heatmap-scroll" class="heatmap-scroll">
+                <!-- Injected via JS -->
             </div>
 
-            <!-- Market Heatmap Scope -->
-            <div class="heatmap-container">
-                <div class="section-title">MARKET HEATMAP</div>
-                <div id="heatmap-scroll" class="heatmap-scroll">
-                    <!-- Injected via JS -->
-                </div>
-            </div>
-
-            <!-- Strategy Filters -->
+            <!-- Strategy Tabs -->
+            <div class="section-title">Strategy Filters</div>
             <div class="strategy-tabs">
                 <button class="tab-btn active" data-strategy="all">ALL</button>
-                <button class="tab-btn" data-strategy="value_invest">💎 割安</button>
-                <button class="tab-btn" data-strategy="high_dividend">💰 高配当</button>
-                <button class="tab-btn" data-strategy="short_squeeze">🔥 需給</button>
-                <button class="tab-btn" data-strategy="rebound">⚡ リバ反</button>
-                <button class="tab-btn" data-strategy="scanner">📡 全市場スキャン</button>
-            </div>
-
-            <!-- Scanner Options (Hidden by default) -->
-            <div id="scanner-options" style="display: none; margin-bottom: 12px; transition: all 0.3s;">
-                <select id="ranking-type" class="tab-btn" style="width: 100%; border-radius: 8px; appearance: none; text-align: center;" onchange="fetchScannerData()">
-                    <option value="1">📈 値上がり率上位 (東証)</option>
-                    <option value="2">📉 値下がり率上位 (東証)</option>
-                    <option value="3">📊 出来高上位</option>
-                    <option value="4">🔥 出来高急増</option>
-                </select>
+                <button class="tab-btn" data-strategy="value_invest">💎 VALUE</button>
+                <button class="tab-btn" data-strategy="high_dividend">💰 DIVIDEND</button>
+                <button class="tab-btn" data-strategy="short_squeeze">🔥 MOMENTUM</button>
+                <button class="tab-btn" data-strategy="rebound">⚡ REBOUND</button>
             </div>
         </div>
 
         <main id="stock-list">
             <!-- Loading State -->
             <div class="loading-state">
-                <div class="scanner"></div>
-                <p>SCANNING MARKET DATA...</p>
+                <div class="pulse-ring"></div>
+                <p>SYNCING MARKET MEMORY...</p>
             </div>
         </main>
     </div>
 
-    <!-- Analysis Detail View (Overlay) -->
+    <!-- Analysis Detail View -->
     <div id="analysis-overlay" class="overlay">
         <div class="overlay-content">
             <header class="overlay-header">
-                <div id="overlay-title">ANALYSIS VIEW</div>
-                <button class="icon-btn" onclick="closeAnalysis()">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
+                <div id="overlay-title">INSIGHTS</div>
+                <button class="icon-btn close-btn" onclick="closeAnalysis()">✕</button>
             </header>
             <div class="split-pane">
                 <div class="pane-left">
                     <div id="chart-container"></div>
                 </div>
                 <div class="pane-right">
-                    <div class="overlay-controls" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; padding:10px; background: rgba(0,0,0,0.2); border-radius:4px;">
-                        <div class="history-selector">
-                            <label for="history-select" style="font-size:0.75rem; color:var(--text-secondary);">HISTORY:</label>
-                            <select id="history-select" onchange="loadSpecificAnalysis(this.value)" style="background:#0d1117; color:white; border:1px solid #30363d; padding:4px; border-radius:4px; margin-left:5px; font-size:0.8rem;"></select>
-                        </div>
-                        <button class="btn btn-primary" onclick="showManualPasteUI()" style="font-size:0.7rem; padding:4px 8px; margin:0;">✨ 新規更新</button>
-                    </div>
                     <div id="report-content" class="markdown-body">
                         <!-- AI Report Injected Here -->
                     </div>

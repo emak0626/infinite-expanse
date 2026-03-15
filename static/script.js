@@ -56,14 +56,14 @@ async function updateHealthStatus() {
     try {
         const response = await fetch('/api/stocks');
         if (response.ok) {
-            dbIndicator.style.background = '#3fb950';
-            apiIndicator.style.background = '#3fb950';
+            dbIndicator.style.background = 'var(--success)';
+            apiIndicator.style.background = 'var(--success)';
         } else {
-            dbIndicator.style.background = '#f85149';
+            dbIndicator.style.background = 'var(--danger)';
         }
     } catch {
-        dbIndicator.style.background = '#f85149';
-        apiIndicator.style.background = '#f85149';
+        dbIndicator.style.background = 'var(--danger)';
+        apiIndicator.style.background = 'var(--danger)';
     }
 }
 
@@ -227,29 +227,24 @@ function renderHeatmap(stocks) {
     const container = document.getElementById('heatmap-scroll');
     container.innerHTML = '';
 
-    // Sort by absolute change percent desc (hottest movers first)
     const sorted = [...stocks].sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent));
 
     sorted.forEach(stock => {
         const div = document.createElement('div');
-        div.className = 'heat-cell';
+        const isUp = stock.change_percent >= 0;
+        div.className = `heat-cell ${isUp ? 'up' : 'down'}`;
 
-        // Color scale calculation (-5% to +5%)
-        const intensity = Math.min(Math.abs(stock.change_percent) / 5, 1);
-        const baseColor = stock.change_percent >= 0 ?
-            `rgba(63, 185, 80, ${0.3 + intensity * 0.7})` :
-            `rgba(248, 81, 73, ${0.3 + intensity * 0.7})`;
-
-        // AI Score Badge for heatmap
         const aiBadge = stock.ai_score ? `<span class="ai-mini-badge" style="background:${getScoreColor(stock.ai_score)}">${stock.ai_score}</span>` : '';
 
-        div.style.backgroundColor = baseColor;
         div.innerHTML = `
             ${aiBadge}
             <span class="symbol-code">${stock.symbol}</span>
-            <span class="change-val">${stock.change_percent > 0 ? '+' : ''}${stock.change_percent}%</span>
+            <span class="change-val">${isUp ? '+' : ''}${stock.change_percent}%</span>
         `;
-        div.onclick = () => document.getElementById(`card-${stock.symbol}`).scrollIntoView({ behavior: "smooth" });
+        div.onclick = () => {
+            const card = document.getElementById(`card-${stock.symbol}`);
+            if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+        };
         container.appendChild(div);
     });
 }
@@ -259,11 +254,16 @@ function renderStocks() {
     list.innerHTML = '';
 
     const filtered = (activeStrategy === 'all' || activeStrategy === 'scanner') ?
+function renderStocks() {
+    const list = document.getElementById('stock-list');
+    list.innerHTML = '';
+
+    const filtered = (activeStrategy === 'all' || activeStrategy === 'scanner') ?
         currentStocks :
         currentStocks.filter(s => s.matched_strategies && s.matched_strategies.includes(activeStrategy));
 
     if (filtered.length === 0) {
-        list.innerHTML = `<p style="text-align:center; padding:20px; color:var(--text-secondary);">条件に一致する銘柄はありません。</p>`;
+        list.innerHTML = `<p style="text-align:center; padding:40px; color:var(--text-secondary); opacity:0.6;">NO ASSETS FOUND</p>`;
         return;
     }
 
@@ -272,14 +272,13 @@ function renderStocks() {
         const colorClass = isUp ? 'up' : 'down';
         const sign = isUp ? '+' : '';
 
-        // Badges Generation
         let badgesHtml = '';
         if (stock.matched_strategies) {
             stock.matched_strategies.forEach(st => {
                 const badgeNames = {
                     'value_invest': '💎 VALUE',
-                    'high_dividend': '💰 YIELD',
-                    'short_squeeze': '🔥 SQUEEZE',
+                    'high_dividend': '💰 DIVIDEND',
+                    'short_squeeze': '🔥 MOMENTUM',
                     'rebound': '⚡ REBOUND'
                 };
                 if (badgeNames[st]) {
@@ -287,70 +286,47 @@ function renderStocks() {
                 }
             });
         }
-        if (stock.volume_spike) badgesHtml += '<span class="badge" style="border-color:#fff; color:#fff;">📢 VOL</span>';
 
-        // Meters Calculation
-        const rsiVal = stock.rsi || 50;
-        const rsiWidth = Math.min(Math.max(rsiVal, 0), 100);
-
-        // AI Reasoning text
         const aiReasoning = stock.ai_summary ? `<div class="ai-reasoning-preview">${stock.ai_summary}</div>` : '';
 
         const card = document.createElement('div');
         card.id = `card-${stock.symbol}`;
-        card.className = 'stock-card';
+        card.className = 'stock-card glass-card animate-in';
         card.dataset.symbol = stock.symbol;
         card.innerHTML = `
-            <div class="card-header">
+            <div class="card-top">
                 <div class="stock-info">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <h2>${stock.symbolname}</h2>
-                        <button class="watchlist-toggle-btn ${activeStrategy !== 'scanner' ? 'active' : ''}" 
-                                onclick="toggleWatchlist(event, this)" 
-                                style="background: none; border: none; padding: 0; cursor: pointer; color: ${activeStrategy !== 'scanner' ? '#FBBC04' : 'var(--text-muted)'}; transition: color 0.3s;">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="${activeStrategy !== 'scanner' ? '#FBBC04' : 'none'}" stroke="currentColor" stroke-width="2">
-                                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/>
-                            </svg>
-                        </button>
-                    </div>
-                    <span class="code">${stock.symbol}</span>
+                    <h3>${stock.symbolname}</h3>
+                    <span class="detail-label">${stock.symbol}</span>
                 </div>
-                <div class="price-box">
-                    <span class="current-price ${colorClass}">${stock.currentprice.toLocaleString()}</span>
-                    <span class="change-percent ${colorClass}">${sign}${stock.change_percent}%</span>
+                <div class="price-main">
+                    <span class="price-now">${stock.currentprice.toLocaleString()}</span>
+                    <span class="price-change ${colorClass}">${sign}${stock.change_percent}%</span>
                 </div>
             </div>
             
-            <div class="badges">${badgesHtml}</div>
+            <div class="strategy-badges" style="display:flex; gap:6px; margin-bottom:12px;">${badgesHtml}</div>
 
-            <div class="card-body">
+            <div class="details-grid">
                 <div class="detail-item">
-                    <span class="detail-label">RSI(${Math.round(rsiVal)})</span>
-                    <div class="meter-container">
-                        <div class="meter-fill" style="width: ${rsiWidth}%; background: ${getRsiColor(rsiVal)}"></div>
-                    </div>
+                    <span class="detail-label">RSI</span>
+                    <span class="detail-value" style="color:${getRsiColor(stock.rsi)}">${Math.round(stock.rsi || 0)}</span>
                 </div>
-                <div class="detail-item ai-insight">
-                    <span class="detail-label">AI SCORE / SENTIMENT</span>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span class="detail-value" style="color:${getScoreColor(stock.ai_score)}">${stock.ai_score || '-'}</span>
-                        ${stock.ai_sentiment ? `<span class="sentiment-badge ${stock.ai_sentiment.toLowerCase()}">${stock.ai_sentiment}</span>` : ''}
-                    </div>
+                <div class="detail-item">
+                    <span class="detail-label">AI SCORE</span>
+                    <span class="detail-value" style="color:${getScoreColor(stock.ai_score)}">${stock.ai_score || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">PER</span>
+                    <span class="detail-value">${stock.per || '-'}</span>
                 </div>
             </div>
 
             ${aiReasoning}
 
-            <div class="actions">
-                <button class="btn btn-primary btn-sm" onclick="copyPrompt('${stock.symbol}', event)">
-                    <span>✨ プロンプト</span>
-                </button>
-                <button class="btn btn-sm" onclick="viewReport('${stock.symbol}')">
-                    <span>📄 レポート</span>
-                </button>
-                <button class="btn btn-sm" onclick="openApp('${stock.symbol}')">
-                    <span>📱 アプリ</span>
-                </button>
+            <div class="card-actions" style="display:flex; gap:8px; margin-top:16px;">
+                <button class="btn btn-primary" style="flex:1; height:40px; font-size:0.8rem;" onclick="copyPrompt('${stock.symbol}', event)">PROMPT</button>
+                <button class="btn btn-outline" style="flex:1; height:40px; font-size:0.8rem;" onclick="viewReport('${stock.symbol}')">INSIGHTS</button>
             </div>
         `;
         list.appendChild(card);
@@ -358,16 +334,16 @@ function renderStocks() {
 }
 
 function getRsiColor(val) {
-    if (val <= 30) return 'cyan'; // Oversold
-    if (val >= 70) return 'magenta'; // Overbought
-    return 'var(--accent-color)';
+    if (val <= 30) return '#00ffff'; 
+    if (val >= 70) return '#ff00ff'; 
+    return 'var(--accent)';
 }
 
 function getScoreColor(score) {
     if (!score) return 'var(--text-secondary)';
-    if (score >= 7) return 'var(--up-color)';
-    if (score <= 4) return 'var(--down-color)';
-    return 'var(--accent-color)';
+    if (score >= 7) return 'var(--success)';
+    if (score <= 4) return 'var(--danger)';
+    return 'var(--accent)';
 }
 
 async function copyPrompt(symbol, event) {
@@ -703,5 +679,25 @@ async function copyBulkPrompt(event) {
         console.error(error);
         btn.innerHTML = `<span>⚠️ ERROR</span>`;
         setTimeout(() => btn.innerHTML = originalText, 2000);
+    }
+}
+async function triggerMarketScan() {
+    const btn = document.getElementById('scan-market-btn');
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.innerHTML = '📡 SCANNING...';
+        btn.disabled = true;
+        const response = await fetch('/api/admin/scan-market', { method: 'POST' });
+        const data = await response.json();
+        alert(data.message);
+    } catch (error) {
+        console.error('Market scan failed:', error);
+        alert('市場スキャンの開始に失敗しました。');
+    } finally {
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }, 3000);
     }
 }
