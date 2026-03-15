@@ -11,6 +11,7 @@ import prompts
 from screener import Screener
 from database import AsyncSessionLocal
 from repository import StockRepository
+from bulk_screener import BulkScreener
 import os
 import time
 import asyncio

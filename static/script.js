@@ -254,11 +254,6 @@ function renderStocks() {
     list.innerHTML = '';
 
     const filtered = (activeStrategy === 'all' || activeStrategy === 'scanner') ?
-function renderStocks() {
-    const list = document.getElementById('stock-list');
-    list.innerHTML = '';
-
-    const filtered = (activeStrategy === 'all' || activeStrategy === 'scanner') ?
         currentStocks :
         currentStocks.filter(s => s.matched_strategies && s.matched_strategies.includes(activeStrategy));
 

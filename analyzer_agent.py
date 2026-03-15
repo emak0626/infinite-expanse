@@ -8,14 +8,14 @@ import asyncio
 from typing import Dict, Any
 
 class GeminiAgent:
-    def __init__(self):
+    def __init__(self, model_id: str = None):
         self.client = None
         if settings.GEMINI_API_KEY:
             self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         else:
             print("Warning: GEMINI_API_KEY not found. AI analysis will be unavailable.")
         
-        self.model_id = settings.GEMINI_MODEL_ID
+        self.model_id = model_id or settings.GEMINI_MODEL_ID
         self.kb = KnowledgeBase()
 
     async def analyze(self, stock: StockMaster, context_data: str, thinking_level: str = "standard") -> dict:

@@ -9,6 +9,7 @@ from repository import StockRepository
 from local_agent import LocalAgent
 from analyzer_agent import GeminiAgent
 from config import settings
+from database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,6 @@ class BulkScreener:
     
     def __init__(self):
         self.api_client = KabuApiClient()
-        self.repo = StockRepository()
         self.local_agent = LocalAgent()
         # Ensure we use Gemini 2.0 Flash for efficiency/free tier
         self.gemini_agent = GeminiAgent(model_id="gemini-2.0-flash-exp") 
@@ -39,9 +39,11 @@ class BulkScreener:
         logger.info("Starting Full Market Hybrid Scan...")
 
         try:
-            # 1. Get all symbols from Master
-            stocks = await self.repo.get_all_stocks()
-            logger.info(f"Targeting {len(stocks)} symbols.")
+            async with AsyncSessionLocal() as session:
+                repo = StockRepository(session)
+                # 1. Get all symbols from Master
+                stocks = await repo.get_all_stocks()
+                logger.info(f"Targeting {len(stocks)} symbols.")
 
             candidates = []
 
@@ -81,7 +83,9 @@ class BulkScreener:
                 
                 for stock, analysis in zip(batch, results):
                     if "error" not in analysis:
-                        await self.repo.save_analysis(stock.symbol, analysis, thinking_level)
+                        async with AsyncSessionLocal() as session:
+                            repo = StockRepository(session)
+                            await repo.save_analysis(stock.symbol, analysis, thinking_level)
                         logger.info(f"Tier 2 -> [SAVED] {stock.symbol} Score: {analysis.get('score')}")
                         # Index to RAG as well
                         await self.gemini_agent.kb.add_knowledge(stock.symbol, analysis.get("reasoning", ""), "Bulk Market Scan")
