@@ -19,7 +19,10 @@
         <header>
             <div class="header-content">
                 <h1>MARKET<span class="highlight">OVERSIGHT</span></h1>
-                <div class="status-indicator"></div>
+                <div class="status-container" style="display: flex; align-items: center; gap: 8px;">
+                    <div id="db-status" class="status-indicator mini" title="Database Status"></div>
+                    <div id="api-status" class="status-indicator mini" title="Kabu API Status"></div>
+                </div>
             </div>
             <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
                 <div id="workspace-links" style="display: none; gap: 8px; margin-right: 10px;">
@@ -47,6 +50,19 @@
                 </button>
             </div>
         </header>
+
+        <!-- Search and Action Bar -->
+        <div class="action-bar card" style="margin-bottom: 20px; padding: 12px 20px; display: flex; gap: 15px; align-items: center;">
+            <div class="search-box" style="flex: 1; position: relative;">
+                <input type="text" id="symbol-search" placeholder="銘柄コード(4桁)を入力して追加..." 
+                       maxlength="4" style="width: 100%; padding: 10px 15px 10px 40px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white;">
+                <svg style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted);" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+            </div>
+            <button class="btn btn-primary" onclick="searchAndAddStock()" style="white-space: nowrap;">➕ 追加</button>
+            <button class="btn btn-outline" onclick="exportForNotebookLM()" title="NotebookLM用データ出力">📋 出力</button>
+        </div>
 
         <div id="market-dashboard">
             <!-- Workspace Console -->

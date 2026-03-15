@@ -1,9 +1,11 @@
 from google import genai
 from google.genai import types
 from config import settings
+from knowledge_base import KnowledgeBase
 from models_db import AnalysisReport, StockMaster
 import json
 import asyncio
+from typing import Dict, Any
 
 class GeminiAgent:
     def __init__(self):
@@ -14,15 +16,20 @@ class GeminiAgent:
             print("Warning: GEMINI_API_KEY not found. AI analysis will be unavailable.")
         
         self.model_id = settings.GEMINI_MODEL_ID
+        self.kb = KnowledgeBase()
 
     async def analyze(self, stock: StockMaster, context_data: str, thinking_level: str = "standard") -> dict:
         """
-        Analyzes stock data and returns a structured JSON report.
+        Analyzes stock data and returns a structured JSON report using multi-persona reasoning and RAG.
         """
         if not self.client:
             return {"error": "Gemini API key not configured", "symbol": stock.symbol, "score": 0}
 
-        prompt = self._build_prompt(stock.symbol, stock.name, context_data, thinking_level)
+        # Phase 2: Long-term Memory Retrieval
+        semantic_context = await self.kb.search_relevant_context(stock.symbol, "最近の業績、リスク、特筆すべき開示事項について")
+        full_context = f"{context_data}\n\n[LONG-TERM MEMORY / HISTORICAL CONTEXT]\n{semantic_context}" if semantic_context else context_data
+
+        prompt = self._build_prompt(stock.symbol, stock.name, full_context, thinking_level)
         
         try:
             # Run in executor to avoid blocking async loop
@@ -46,20 +53,31 @@ class GeminiAgent:
 
     def _build_prompt(self, symbol: str, name: str, context: str, level: str) -> str:
         base_instruction = f"""
-        You are an AI Investment Analyst acting as a 'co-pilot' for a professional trader.
-        Analyze the stock {name} ({symbol}) based on the provided technical and fundamental data.
+        あなたは、プロの投資家チームを統括するリード・アナリストです。
+        以下の銘柄 {name} ({symbol}) について、提供されたデータ（最新の価格データおよび過去の文脈）に基づき、複数の専門的視点から分析を行ってください。
         
-        Focus on identifying short-term momentum shifts and supply-demand imbalances.
-        
+        以下の3つのペルソナによる合議制（推論プロセス）をシミュレートしてください：
+        1. **バリュー投資家**: 資産価値、配当、キャッシュフロー、PER/PBR等の指標から「安全域」を評価する。
+        2. **デビルズ・アドボケート（逆説家）**: 投資仮説に対するリスク、地政学、需給の悪化、競合の脅威を強調する。
+        3. **テクニカル・ストラテジスト**: RSI、乖離率、板情報、出来高の変化から、価格変動のエネルギーと方向性を判定する。
+
+        最終的に、これら三者の意見を統合し、バイアスのない客観的な評価を出力してください。
+
         Output format: JSON
         Schema:
         {{
-            "summary": "Key takeaways (1 sentence)",
+            "summary": "Key takeaways (1 sentence in Japanese)",
             "score": float (0-10, 10 is strong buy),
             "sentiment": "Bullish | Neutral | Bearish",
-            "reasoning": "Detailed markdown explanation highlighting technical and fundamental confluence",
+            "reasoning": "Markdown explanation integrating multi-persona discussion (in Japanese)",
+            "persona_views": {{
+                "value": "Value investor's perspective",
+                "risk": "Devil's advocate's perspective",
+                "technical": "Strategist's perspective"
+            }},
             "risks": ["Specific risk 1", "Specific risk 2"],
-            "opportunities": ["Specific opportunity 1", "Specific opportunity 2"]
+            "opportunities": ["Specific opportunity 1", "Specific opportunity 2"],
+            "catalysts": ["Potential spark for price movement"]
         }}
         """
 
@@ -67,14 +85,12 @@ class GeminiAgent:
             return f"""
             {base_instruction}
             
-            [THINKING MARKER: HIGH]
-            Perform a deep-dive analysis.
-            1. Evaluate the synergy between technical indicators (RSI, Moving Average Deviation) and market structure (Board Balance, Credit Ratio).
-            2. Infer potential institutional behavior if 'Large Orders' are detected.
-            3. Consider the impact of 'Short Squeeze' potential if credit ratios are low or negative.
-            4. Provide a 'Non-Consensus' view - what is the market missing?
+            [THINKING MODE: DEEP MULTI-PERSONA]
+            - バリュー投資家は、現在のバリュエーションが歴史的水準と比べてどうあるかを指摘してください。
+            - デビルズ・アドボケートは、最も悲観的なシナリオ（倒産や暴落のリスク）をあえて強調してください。
+            - ストラテジストは、現在の出来高急増が「買い」か「投げ」かを板情報から推測してください。
             
-            Context Data (Historical Prices & Indicators):
+            Context Data:
             {context}
             """
         else:

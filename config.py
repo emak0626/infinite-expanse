@@ -22,10 +22,11 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "stock_analysis"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
+    USE_SQLITE: bool = True
     
     @property
     def DATABASE_URL(self) -> str:
-        if os.getenv("USE_SQLITE", "True").lower() == "true":
+        if self.USE_SQLITE:
             return "sqlite+aiosqlite:///./stock.db"
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 

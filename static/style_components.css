@@ -183,6 +183,14 @@
     transition: background 0.3s;
 }
 
+.status-indicator.mini {
+    width: 6px;
+    height: 6px;
+}
+
+#db-status::after { content: " DB"; font-size: 0.6rem; color: var(--text-muted); margin-left: 10px; vertical-align: middle; }
+#api-status::after { content: " API"; font-size: 0.6rem; color: var(--text-muted); margin-left: 10px; vertical-align: middle; }
+
 /* AI Reasoning Preview on card */
 .ai-reasoning-preview {
     font-size: 0.8rem;

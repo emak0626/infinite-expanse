@@ -15,6 +15,8 @@ from drive_manager import DriveManager
 from sheets_manager import SheetsManager
 from batch_screener import BatchScreener
 from docs_manager import DocsManager
+from edinet_client import EdinetClient
+from local_agent import LocalAgent
 
 # Initialize Clients
 real_client = KabucomClient()
@@ -24,6 +26,8 @@ drive_mgr = DriveManager()
 sheets_mgr = SheetsManager()
 batch_screener = BatchScreener()
 docs_mgr = DocsManager()
+edinet_client = EdinetClient()
+local_agent = LocalAgent()
 
 scheduler = AsyncIOScheduler()
 
@@ -205,12 +209,41 @@ async def run_daily_analysis():
 
                     docs_mgr.create_doc_from_markdown(report_title, md_report, folder_id=sub_folder_id)
                     print(f"Report and Doc created for {symbol}")
+
+                    # Phase 2: Index into Long-Term Memory (RAG)
+                    await agent.kb.add_knowledge(symbol, analysis.get("reasoning", ""), "Daily AI Analysis Report")
+                    print(f"Indexed {symbol} analysis into long-term memory.")
                 
                 # Delay to respect rate limits
                 await asyncio.sleep(5)
                 
             except Exception as e:
                 print(f"Error in deep-dive/reporting for {symbol}: {e}")
+
+async def run_edinet_scan():
+    """
+    Daily job: Scan EDINET for relevant documents.
+    """
+    print(f"[{datetime.now()}] Starting EDINET Scan Job...")
+    async with AsyncSessionLocal() as session:
+        repo = StockRepository(session)
+        target_symbols = await repo.get_watchlist_symbols()
+        
+        docs = await edinet_client.get_documents_on_date()
+        relevant = await edinet_client.filter_relevant_documents(docs, target_symbols)
+        
+        for doc in relevant:
+            print(f"New Document Found: {doc['symbol']} - {doc['title']}")
+            # Phase 1.5: Local LLM Screening
+            screening = await local_agent.screen_document(doc['symbol'], doc['title'])
+            
+            if screening.get("is_important"):
+                print(f"-> [IMPORTANT] Local LLM tagged for deep analysis: {screening.get('reason')}")
+                await repo.add_stock_note(doc['symbol'], f"重要開示({screening.get('priority')}): {doc['title']} - {screening.get('reason')}")
+                # In next step, we could trigger agent.analyze with higher priority here
+            else:
+                print(f"-> [SKIP] Local LLM deemed not urgent: {screening.get('reason')}")
+                await repo.add_stock_note(doc['symbol'], f"開示: {doc['title']} (AI判定: 低優先)")
 
 def start_scheduler():
     # Fetch & Sync to Sheets: Every 10 minutes (for production realism)
@@ -220,6 +253,10 @@ def start_scheduler():
     # AI Analysis Pipeline: Every day at 16:00
     trigger_analyze = CronTrigger(hour=16, minute=10)
     scheduler.add_job(run_daily_analysis, trigger_analyze)
+
+    # EDINET Scan: Every day at 17:00
+    trigger_edinet = CronTrigger(hour=17, minute=0)
+    scheduler.add_job(run_edinet_scan, trigger_edinet)
     
     scheduler.start()
     print("Scheduler Started with Google Workspace Sync and AI Pipeline.")

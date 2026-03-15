@@ -2,6 +2,8 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchData();
     setupTabs();
     fetchWorkspaceLinks();
+    updateHealthStatus();
+    setInterval(updateHealthStatus, 30000); // Check every 30s
 });
 
 async function fetchWorkspaceLinks() {
@@ -42,6 +44,78 @@ async function fetchWorkspaceLinks() {
         }
     } catch (error) {
         console.error('Error fetching workspace links:', error);
+    }
+}
+
+async function updateHealthStatus() {
+    const dbIndicator = document.getElementById('db-status');
+    const apiIndicator = document.getElementById('api-status');
+    
+    // For now, simplify check based on fetchData success or a dedicated health endpoint
+    // In a real robust app, add /api/health endpoint balance
+    try {
+        const response = await fetch('/api/stocks');
+        if (response.ok) {
+            dbIndicator.style.background = '#3fb950';
+            apiIndicator.style.background = '#3fb950';
+        } else {
+            dbIndicator.style.background = '#f85149';
+        }
+    } catch {
+        dbIndicator.style.background = '#f85149';
+        apiIndicator.style.background = '#f85149';
+    }
+}
+
+async function searchAndAddStock() {
+    const input = document.getElementById('symbol-search');
+    const symbol = input.value.trim();
+    if (!symbol || symbol.length !== 4) {
+        alert("4桁の銘柄コードを入力してください。");
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/watchlist/${symbol}`, { method: 'POST' });
+        if (response.ok) {
+            input.value = '';
+            alert(`${symbol} をウォッチリストに追加しました。`);
+            fetchData(); // Refresh list
+        } else {
+            const err = await response.json();
+            alert(`追加に失敗しました: ${err.detail || '不明なエラー'}`);
+        }
+    } catch (error) {
+        console.error('Search add failed:', error);
+        alert("通信エラーが発生しました。");
+    }
+}
+
+async function exportForNotebookLM() {
+    const btn = event.currentTarget;
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.innerHTML = '⌛ 生成中...';
+        // Use the dedicated NotebookLM export endpoint
+        const response = await fetch('/api/export/notebooklm');
+        const data = await response.json();
+        
+        const blob = new Blob([data.prompt], { type: 'text/markdown' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `market_analysis_for_notebooklm_${new Date().toISOString().slice(0,10)}.md`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        
+        btn.innerHTML = '✅ 完了';
+        setTimeout(() => btn.innerHTML = originalText, 2000);
+    } catch (error) {
+        console.error('Export failed:', error);
+        btn.innerHTML = '❌ ERROR';
+        setTimeout(() => btn.innerHTML = originalText, 2000);
     }
 }
 
@@ -225,6 +299,7 @@ function renderStocks() {
         const card = document.createElement('div');
         card.id = `card-${stock.symbol}`;
         card.className = 'stock-card';
+        card.dataset.symbol = stock.symbol;
         card.innerHTML = `
             <div class="card-header">
                 <div class="stock-info">
@@ -500,11 +575,38 @@ function renderReport(data) {
             <span class="badge" style="background:var(--accent-color); color:white">SCORE: ${score}</span>
             <p style="font-weight:700; margin-top:10px">${summary}</p>
         </div>
-        <div class="ai-reasoning">${parseMarkdown(textToRender)}</div>
+        
+        ${data.persona_views ? `
+            <div class="persona-section" style="margin-top:20px; display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:15px;">
+                <div class="persona-box" style="background:#1c2128; padding:12px; border-radius:6px; border-left:4px solid #3fb950;">
+                    <div style="font-size:0.8rem; color:#8b949e; margin-bottom:5px;">💎 VALUE INVESTOR</div>
+                    <div style="font-size:0.9rem;">${data.persona_views.value || '-'}</div>
+                </div>
+                <div class="persona-box" style="background:#1c2128; padding:12px; border-radius:6px; border-left:4px solid #f85149;">
+                    <div style="font-size:0.8rem; color:#8b949e; margin-bottom:5px;">👺 DEVIL'S ADVOCATE</div>
+                    <div style="font-size:0.9rem;">${data.persona_views.risk || '-'}</div>
+                </div>
+                <div class="persona-box" style="background:#1c2128; padding:12px; border-radius:6px; border-left:4px solid #388bfd;">
+                    <div style="font-size:0.8rem; color:#8b949e; margin-bottom:5px;">⚡ STRATEGIST</div>
+                    <div style="font-size:0.9rem;">${data.persona_views.technical || '-'}</div>
+                </div>
+            </div>
+        ` : ''}
+
+        <div class="ai-reasoning" style="margin-top:20px;">${parseMarkdown(textToRender)}</div>
     `;
 
+    if (data.catalysts && Array.isArray(data.catalysts)) {
+        html += `
+            <div style="margin-top:20px; padding:15px; background:rgba(56, 139, 253, 0.1); border-radius:8px; border:1px solid rgba(56, 139, 253, 0.3);">
+                <h3 style="margin-top:0; font-size:1rem; color:#58a6ff;">🚀 CATALYSTS</h3>
+                <ul style="margin-bottom:0;">${data.catalysts.map(c => `<li>${c}</li>`).join('')}</ul>
+            </div>
+        `;
+    }
+
     if (content.risks && Array.isArray(content.risks)) {
-        html += `<h3>RISKS</h3><ul>${content.risks.map(r => `<li>${r}</li>`).join('')}</ul>`;
+        html += `<h3 style="margin-top:20px;">RISKS</h3><ul>${content.risks.map(r => `<li>${r}</li>`).join('')}</ul>`;
     }
 
     reportDiv.innerHTML = html;

@@ -12,6 +12,39 @@ from screener import Screener
 from database import AsyncSessionLocal
 from repository import StockRepository
 import os
+import time
+import asyncio
+from functools import wraps
+
+def retry_db_async(max_retries=3, delay=1):
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_err = None
+            for i in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_err = e
+                    print(f"DB Retry {i+1}/{max_retries} due to: {e}")
+                    await asyncio.sleep(delay * (i + 1))
+            raise last_err
+        return wrapper
+    return decorator
+
+# Simple API Cache
+_api_cache = {}
+CACHE_TTL = 300 # 5 minutes
+
+def get_cached_board(symbol):
+    now = time.time()
+    if symbol in _api_cache:
+        data, timestamp = _api_cache[symbol]
+        if now - timestamp < CACHE_TTL:
+            return data
+    data = api_client.get_board(symbol)
+    _api_cache[symbol] = (data, now)
+    return data
 
 screener = Screener()
 
@@ -62,9 +95,40 @@ async def read_root(username: str = Depends(authenticate)):
     with open("templates/index.html", "r", encoding="utf-8") as f:
         return f.read()
 
+async def get_stock_data_with_fallback(symbol: str, repo: StockRepository) -> StockData:
+    """Gets latest data from API, falling back to DB if API returns mock data in non-mock mode."""
+    data = get_cached_board(symbol)
+    
+    # If the API returned mock data (fallback in kabu_api.py or global Mock Mode)
+    # then try to enhance it with better historical data from DB if available.
+    if not data.is_real_data:
+        latest_prices = await repo.get_latest_prices(symbol, limit=1)
+        if latest_prices:
+            p = latest_prices[0]
+            # Sync name if it's currently Unknown
+            if data.symbolname.startswith("Mock") or data.symbolname == "Unknown":
+                stock_master = await repo.get_or_create_stock(symbol)
+                if stock_master.name != "Unknown":
+                    data.symbolname = stock_master.name
+                else:
+                    # Fallback if both are Unknown
+                    data.symbolname = f"銘柄 {symbol}"
+            
+            data.currentprice = p.close
+            data.previousclose = p.close # Approximate
+            data.change_percent = 0.0
+            data.volume = p.volume
+            data.high = p.high
+            data.low = p.low
+            data.rsi = p.rsi_14
+            # We explicitly mark this as semi-real (historical fallback)
+            data.symbolname = f"{data.symbolname} (週末/閉場中)"
+    return data
+
 @app.get("/api/stocks", response_model=List[StockData])
+@retry_db_async()
 async def get_stocks(username: str = Depends(authenticate)):
-    """Fetches latest data for all watched stocks including AI scores."""
+    """Fetches latest data for all watched stocks including AI scores and DB fallback."""
     results = []
     async with AsyncSessionLocal() as session:
         repo = StockRepository(session)
@@ -78,7 +142,9 @@ async def get_stocks(username: str = Depends(authenticate)):
             db_watchlist = WATCHLIST
             
         for symbol in db_watchlist:
-            data = api_client.get_board(symbol)
+            # Use fallback enhanced data
+            data = await get_stock_data_with_fallback(symbol, repo)
+            
             # Fetch latest AI analysis
             report = await repo.get_latest_analysis(symbol)
             if report:
@@ -90,6 +156,7 @@ async def get_stocks(username: str = Depends(authenticate)):
     return results
 
 @app.post("/api/watchlist/{symbol}")
+@retry_db_async()
 async def add_to_watchlist(symbol: str, username: str = Depends(authenticate)):
     async with AsyncSessionLocal() as session:
         repo = StockRepository(session)
@@ -97,6 +164,7 @@ async def add_to_watchlist(symbol: str, username: str = Depends(authenticate)):
     return {"status": "added", "symbol": symbol}
 
 @app.delete("/api/watchlist/{symbol}")
+@retry_db_async()
 async def remove_from_watchlist(symbol: str, username: str = Depends(authenticate)):
     async with AsyncSessionLocal() as session:
         repo = StockRepository(session)
@@ -114,7 +182,7 @@ async def get_screening_results(username: str = Depends(authenticate)):
         if not db_watchlist: db_watchlist = settings.WATCHLIST
         
         for symbol in db_watchlist:
-            data = api_client.get_board(symbol)
+            data = await get_stock_data_with_fallback(symbol, repo)
             report = await repo.get_latest_analysis(symbol)
             if report:
                 data.ai_score = report.score
@@ -176,7 +244,7 @@ async def get_bulk_prompt(source: str = "watchlist", type: str = "1", username: 
             if not db_watchlist: db_watchlist = WATCHLIST
             
             for symbol in db_watchlist:
-                data = api_client.get_board(symbol)
+                data = await get_stock_data_with_fallback(symbol, repo)
                 if data: full_list.append(data)
     else:
         full_list = api_client.get_ranking(type)
@@ -186,6 +254,50 @@ async def get_bulk_prompt(source: str = "watchlist", type: str = "1", username: 
         
     prompt_text = prompts.generate_bulk_analysis_prompt(full_list)
     return {"prompt": prompt_text, "count": len(full_list)}
+
+@app.get("/api/export/notebooklm")
+@retry_db_async()
+async def export_notebooklm(username: str = Depends(authenticate)):
+    """
+    Generates a consolidated Markdown file for NotebookLM.
+    Includes watchlist data and latest AI reports.
+    """
+    content = "# Market Oversight - Intelligence Export for NotebookLM\n\n"
+    content += f"Export Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    
+    async with AsyncSessionLocal() as session:
+        repo = StockRepository(session)
+        symbols = await repo.get_watchlist_symbols()
+        
+        content += "## Watchlist Overview\n"
+        for symbol in symbols:
+            try:
+                data = await get_stock_data_with_fallback(symbol, repo)
+                report = await repo.get_latest_analysis(symbol)
+                
+                name = data.symbolname or "Unknown"
+                content += f"### {name} ({symbol})\n"
+                price = data.currentprice or "N/A"
+                rsi = data.rsi or "N/A"
+                score = data.ai_score or (report.score if report else "N/A")
+                content += f"- Price: {price}, RSI: {rsi}, AI Score: {score}\n"
+                
+                if report:
+                    summary = report.summary or "No summary available"
+                    content += f"- AI Summary: {summary}\n"
+                    try:
+                        report_data = json.loads(report.report_content)
+                        reasoning = report_data.get('reasoning', report_data.get('text', ''))
+                        if reasoning:
+                            content += f"\n#### Detailed Analysis\n{reasoning}\n"
+                    except:
+                        if report.report_content:
+                            content += f"\n#### Detailed Analysis\n{report.report_content}\n"
+                content += "\n---\n"
+            except Exception as e:
+                content += f"### Error exporting {symbol}: {str(e)}\n\n---\n"
+            
+    return {"prompt": content}
 
 @app.get("/api/prompt/{symbol}")
 async def get_single_prompt(symbol: str, username: str = Depends(authenticate)):
@@ -206,6 +318,7 @@ import json
 ai_agent = GeminiAgent()
 
 @app.post("/api/analyze/{symbol}")
+@retry_db_async()
 async def analyze_stock(symbol: str, username: str = Depends(authenticate)):
     """
     Triggers AI analysis via Gemini and saves the structured result to the DB.
@@ -235,19 +348,25 @@ async def analyze_stock(symbol: str, username: str = Depends(authenticate)):
         )
         
         # 3. Save to DB
-        if "error" not in analysis:
-            await repo.save_analysis(
+        if "error" not in analysis_result:
+            # Phase 1: Support multi-persona results
+            report = AnalysisReport(
                 symbol=symbol,
-                content=json.dumps(analysis, indent=2, ensure_ascii=False),
-                score=float(analysis.get("score", 0)),
-                thinking_level="standard",
-                summary=analysis.get("summary"),
-                sentiment=analysis.get("sentiment")
+                report_content=json.dumps(analysis_result),
+                score=analysis_result.get("score"),
+                summary=analysis_result.get("summary"),
+                sentiment=analysis_result.get("sentiment"),
+                persona_views=json.dumps(analysis_result.get("persona_views")) if "persona_views" in analysis_result else None,
+                catalysts=json.dumps(analysis_result.get("catalysts")) if "catalysts" in analysis_result else None,
+                thinking_level=thinking_level
             )
-            return {"status": "success", "score": analysis.get("score"), "summary": analysis.get("summary")}
+            session.add(report)
+            await session.commit()
+            await session.refresh(report)
+            return {"status": "success", "score": analysis_result.get("score"), "summary": analysis_result.get("summary")}
         else:
             # Check for Quota/Rate limit issues
-            err_msg = analysis['error']
+            err_msg = analysis_result['error']
             status_code = 500
             if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
                 status_code = 429
@@ -277,19 +396,7 @@ async def get_latest_analysis_detail(symbol: str, username: str = Depends(authen
         if not report:
             return {"error": "Analysis not found"}
         
-        try:
-            content = json.loads(report.report_content)
-        except:
-            content = {"text": report.report_content}
-            
-        return {
-            "symbol": symbol,
-            "score": report.score,
-            "sentiment": report.sentiment,
-            "summary": report.summary,
-            "content": content,
-            "created_at": report.created_at
-        }
+        return format_report(report)
 
 @app.get("/api/analysis_detail/{report_id}")
 async def get_analysis_by_id(report_id: int, username: str = Depends(authenticate)):
@@ -311,8 +418,13 @@ def format_report(report):
     return {
         "id": report.id,
         "symbol": report.symbol,
-        "created_at": report.created_at,
+        "report_content": report.report_content,
         "score": report.score,
+        "summary": report.summary,
+        "sentiment": report.sentiment,
+        "persona_views": json.loads(report.persona_views) if report.persona_views else None,
+        "catalysts": json.loads(report.catalysts) if report.catalysts else None,
+        "created_at": report.created_at.isoformat(),
         "thinking_level": report.thinking_level,
         "content": content
     }

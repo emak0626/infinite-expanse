@@ -133,7 +133,8 @@ class KabuApiClient:
             credit_ratio=info.get("MarginBuyRatio"),
             short_selling_cost=False,
             over_under_ratio=1.0,
-            has_large_order=False
+            has_large_order=False,
+            is_real_data=True
         )
 
     def _generate_mock_data(self, symbol: str) -> StockData:
@@ -169,5 +170,6 @@ class KabuApiClient:
             credit_ratio=round(0.5 + random.random() * 5, 2),
             short_selling_cost=random.random() > 0.9,
             over_under_ratio=round(0.5 + random.random() * 1.5, 2),
-            has_large_order=random.random() > 0.7
+            has_large_order=random.random() > 0.7,
+            is_real_data=False
         )

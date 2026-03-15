@@ -34,6 +34,8 @@ class StockData(BaseModel):
     ai_sentiment: Optional[str] = None
     ai_summary: Optional[str] = None
     ai_thinking: Optional[str] = None # low, standard, high
+    
+    is_real_data: bool = True # Flag to indicate if data is from live API or DB fallback
 
 class AnalysisRequest(BaseModel):
     symbol: str

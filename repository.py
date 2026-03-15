@@ -1,6 +1,6 @@
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from models_db import StockMaster, StockPrice, AnalysisReport, UserWatchlist
+from models_db import StockMaster, StockPrice, AnalysisReport, UserWatchlist, MarketOverview
 from datetime import datetime
 
 class StockRepository:
@@ -15,6 +15,10 @@ class StockRepository:
         if not stock:
             stock = StockMaster(symbol=symbol, name=name)
             self.session.add(stock)
+            await self.session.commit()
+            await self.session.refresh(stock)
+        elif stock.name == "Unknown" and name != "Unknown":
+            stock.name = name
             await self.session.commit()
             await self.session.refresh(stock)
         return stock
@@ -92,3 +96,18 @@ class StockRepository:
         if item:
             await self.session.delete(item)
             await self.session.commit()
+
+    # --- Market Overview Accumulation ---
+    async def save_market_overview(self, overview_data: dict):
+        new_overview = MarketOverview(
+            time=datetime.now(),
+            **overview_data
+        )
+        self.session.add(new_overview)
+        await self.session.commit()
+        return new_overview
+
+    async def get_latest_market_overview(self) -> MarketOverview:
+        stmt = select(MarketOverview).order_by(desc(MarketOverview.time)).limit(1)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
