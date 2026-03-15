@@ -44,21 +44,44 @@
             </div>
         </div>
 
-        <div id="market-dashboard">
-            <!-- Heatmap -->
-            <div class="section-title">Market Pulse</div>
-            <div id="heatmap-scroll" class="heatmap-scroll">
-                <!-- Injected via JS -->
+            <!-- Strategy Tabs -->
+            <div id="market-dashboard">
+                <!-- Heatmap -->
+                <div class="section-title">Market Pulse</div>
+                <div id="heatmap-scroll" class="heatmap-scroll">
+                    <!-- Injected via JS -->
+                </div>
+
+                <div class="section-title">Strategy Filters</div>
+            <div class="strategy-tabs">
+                <button class="tab-btn active" data-strategy="all">すべて</button>
+                <button class="tab-btn" data-strategy="value_invest">💎 バリュー</button>
+                <button class="tab-btn" data-strategy="high_dividend">💰 配当重視</button>
+                <button class="tab-btn" data-strategy="short_squeeze">🔥 モメンタム</button>
+                <button class="tab-btn" data-strategy="rebound">⚡ 反発期待</button>
+                <button class="tab-btn" data-strategy="scanner">📡 スキャナー</button>
             </div>
 
-            <!-- Strategy Tabs -->
-            <div class="section-title">Strategy Filters</div>
-            <div class="strategy-tabs">
-                <button class="tab-btn active" data-strategy="all">ALL</button>
-                <button class="tab-btn" data-strategy="value_invest">💎 VALUE</button>
-                <button class="tab-btn" data-strategy="high_dividend">💰 DIVIDEND</button>
-                <button class="tab-btn" data-strategy="short_squeeze">🔥 MOMENTUM</button>
-                <button class="tab-btn" data-strategy="rebound">⚡ REBOUND</button>
+            <!-- Scanner Options (Hidden by default) -->
+            <div id="scanner-options" class="glass-card animate-in" style="display: none; margin: 12px 0; padding: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                    <span class="detail-label" style="font-size: 0.8rem;">Ranking Type:</span>
+                    <select id="ranking-type" onchange="fetchScannerData()" style="flex: 1; background: #1c2128; color: white; border: 1px solid #30363d; padding: 6px; border-radius: 6px;">
+                        <option value="1">値上がり率</option>
+                        <option value="2">値下がり率</option>
+                        <option value="3">売買代金急増</option>
+                        <option value="4">出来高急増</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Workspace Console -->
+            <div id="workspace-console" class="glass-card animate-in" style="display: none; margin: 24px 0; padding: 16px;">
+                <div class="section-title" style="margin: 0 0 12px 0;">Intelligence Hub</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <a id="sheet-link-large" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.8rem; padding: 10px;">📊 Master Sheet</a>
+                    <a id="drive-link-large" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.8rem; padding: 10px;">📁 Drive Folder</a>
+                </div>
             </div>
         </div>
 
@@ -75,8 +98,14 @@
     <div id="analysis-overlay" class="overlay">
         <div class="overlay-content">
             <header class="overlay-header">
-                <div id="overlay-title">INSIGHTS</div>
-                <button class="icon-btn close-btn" onclick="closeAnalysis()">✕</button>
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <div id="overlay-title">INSIGHTS</div>
+                    <select id="history-select" onchange="loadSpecificAnalysis(this.value)" style="background:#1c2128; color:white; border:1px solid #30363d; padding:4px 8px; border-radius:4px; font-size:0.8rem;"></select>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn btn-outline btn-sm" onclick="showManualPasteUI()">Manual Input</button>
+                    <button class="icon-btn close-btn" onclick="closeAnalysis()">✕</button>
+                </div>
             </header>
             <div class="split-pane">
                 <div class="pane-left">

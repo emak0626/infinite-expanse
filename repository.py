@@ -111,3 +111,31 @@ class StockRepository:
         stmt = select(MarketOverview).order_by(desc(MarketOverview.time)).limit(1)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_top_ai_stocks(self, limit: int = 50):
+        # Join AnalysisReport with StockMaster to get names
+        stmt = select(
+            AnalysisReport.symbol,
+            StockMaster.name.label("symbolname"),
+            AnalysisReport.score.label("ai_score"),
+            AnalysisReport.summary.label("ai_summary"),
+            AnalysisReport.created_at
+        ).join(
+            StockMaster, AnalysisReport.symbol == StockMaster.symbol
+        ).order_by(
+            desc(AnalysisReport.created_at)
+        ).limit(limit)
+        
+        result = await self.session.execute(stmt)
+        # Convert to dict for convenience in API
+        return [
+            {
+                "symbol": r.symbol,
+                "symbolname": r.symbolname,
+                "ai_score": r.ai_score,
+                "ai_summary": r.ai_summary,
+                "currentprice": 0, # Placeholder or fetch latest price if needed
+                "change_percent": 0 # Placeholder
+            }
+            for r in result.all()
+        ]

@@ -137,6 +137,29 @@ class KabuApiClient:
             is_real_data=True
         )
 
+    SYMBOL_NAME_MAP = {
+        "7203": "トヨタ自動車",
+        "9984": "ソフトバンクグループ",
+        "6758": "ソニーグループ",
+        "8035": "東京エレクトロン",
+        "5401": "日本製鉄",
+        "9101": "日本郵船",
+        "8306": "三菱UFJフィナンシャルG",
+        "8316": "三井住友フィナンシャルG",
+        "7267": "本田技研工業",
+        "6501": "日立製作所",
+        "6702": "富士通",
+        "7751": "キヤノン",
+        "4502": "武田薬品工業",
+        "4503": "アステラス製薬",
+        "6954": "ファナック",
+        "6098": "リクルートHD",
+        "6367": "ダイキン工業",
+        "6861": "キーエンス",
+        "7974": "任天堂",
+        "9432": "日本電信電話"
+    }
+
     def _generate_mock_data(self, symbol: str) -> StockData:
         """生成するモックデータを銘柄ごとにユニークにする。"""
         import random
@@ -150,9 +173,12 @@ class KabuApiClient:
         change = random.uniform(-5.0, 5.0)
         rsi = 30 + (seed % 40) + random.uniform(-5, 5) # 25-75の範囲でバラつかせる
         
+        # 名前マップから取得、なければデフォルト名
+        symbol_name = self.SYMBOL_NAME_MAP.get(symbol, f"銘柄 {symbol} (Mock)")
+
         return StockData(
             symbol=symbol,
-            symbolname=f"Mock Corp {symbol}",
+            symbolname=symbol_name,
             currentprice=float(base_price),
             previousclose=float(base_price / (1 + change/100)),
             change_percent=round(change, 2),

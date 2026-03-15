@@ -47,24 +47,33 @@ class BulkScreener:
 
             candidates = []
 
-            # 2. Tier 1: Local Pre-screening
+            # 2. Tier 1: Local Pre-screening (Favor Local LLM)
             for stock in stocks:
-                # To be efficient, we might fetch board data here
-                # but for bulk, we focus on symbols known for movement from kabu_api's full list if available
-                # For this implementation, we filter by simple 'LocalAgent' call on the name/ticker first
-                # or just process a batch of them.
+                # Optimized prompt to be even stricter to save Gemini quota
+                context = f"Company: {stock.name}. Recent performance check."
+                screening = await self.local_agent.screen_document(stock.symbol, f"Market Status Check: {stock.name}", context)
                 
-                # Sample logic: If stock is in Master, we check its importance
-                screening = await self.local_agent.screen_document(stock.symbol, f"Market Status Check: {stock.name}")
-                
-                if screening.get("is_important"):
-                    logger.info(f"Local Filter -> [PASS] {stock.symbol} ({stock.name}): {screening['reason']}")
+                # Only pass 'high' priority to Gemini, handle others locally or watch
+                if screening.get("is_important") and screening.get("priority") == "high":
+                    logger.info(f"Local Filter -> [PASS to Gemini] {stock.symbol} ({stock.name}): {screening['reason']}")
                     candidates.append(stock)
+                elif screening.get("is_important"):
+                    # Save a medium-confidence screening directly using local analysis
+                    logger.info(f"Local Filter -> [LOCAL SAVE] {stock.symbol} ({stock.name})")
+                    analysis = {
+                        "score": 5.0 if screening.get("priority") == "medium" else 3.0,
+                        "summary": screening.get("reason"),
+                        "reasoning": f"Local LLM determined moderate importance: {screening['reason']}",
+                        "persona_views": {"value": "Local screening pass", "risk": "Moderate priority"},
+                        "source": "Local LLM"
+                    }
+                    async with AsyncSessionLocal() as session:
+                        repo = StockRepository(session)
+                        await repo.save_analysis(stock.symbol, analysis, thinking_level)
                 
-                # Sleep a tiny bit for local Ollama throttling if needed
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
 
-            logger.info(f"Tier 1 completed. {len(candidates)} candidates passed to Gemini 2.0 Flash.")
+            logger.info(f"Tier 1 completed. {len(candidates)} high-priority candidates passed to Gemini.")
 
             # 3. Tier 2: Gemini 2.0 Flash Deep Analysis (Throttled for Free Tier)
             # Free tier: 15 RPM

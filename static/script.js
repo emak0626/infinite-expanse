@@ -1,10 +1,32 @@
 document.addEventListener('DOMContentLoaded', () => {
-    fetchData();
-    setupTabs();
-    fetchWorkspaceLinks();
-    updateHealthStatus();
-    setInterval(updateHealthStatus, 30000); // Check every 30s
+    try {
+        fetchStocks();
+        setupTabs();
+        fetchWorkspaceLinks();
+        updateHealthStatus();
+        setInterval(updateHealthStatus, 30000); 
+    } catch (e) {
+        console.error("Initialization error:", e);
+    }
 });
+
+async function copyAnalysisPrompt(symbol, name) {
+    try {
+        const response = await fetch(`/api/analysis/prompt/${symbol}`);
+        const data = await response.json();
+        
+        let promptText = data.prompt;
+        // Inject company name if it's not present or to ensure clarity
+        if (name && !promptText.includes(name)) {
+            promptText = `銘柄名: ${name}\n` + promptText;
+        }
+
+        await navigator.clipboard.writeText(promptText);
+    } catch (error) {
+        console.error('Failed to copy analysis prompt:', error);
+        alert('分析プロンプトのコピーに失敗しました。');
+    }
+}
 
 async function fetchWorkspaceLinks() {
     try {
@@ -23,24 +45,24 @@ async function fetchWorkspaceLinks() {
             const sheetLinkLarge = document.getElementById('sheet-link-large');
             const driveLinkLarge = document.getElementById('drive-link-large');
             
-            if (data.sheet) {
+            if (data.sheet && sheetLink) {
                 sheetLink.href = data.sheet;
-                sheetLinkLarge.href = data.sheet;
-            } else {
+                if (sheetLinkLarge) sheetLinkLarge.href = data.sheet;
+            } else if (sheetLink) {
                 sheetLink.style.display = 'none';
-                sheetLinkLarge.parentElement.style.display = 'none';
+                if (sheetLinkLarge) sheetLinkLarge.parentElement.style.display = 'none';
             }
             
-            if (data.root) {
+            if (data.root && driveLink) {
                 driveLink.href = data.root;
-                driveLinkLarge.href = data.root;
-            } else {
+                if (driveLinkLarge) driveLinkLarge.href = data.root;
+            } else if (driveLink) {
                 driveLink.style.display = 'none';
-                driveLinkLarge.parentElement.style.display = 'none';
+                if (driveLinkLarge) driveLinkLarge.parentElement.style.display = 'none';
             }
             
-            container.style.display = 'flex';
-            console.style.display = 'block';
+            if (container) container.style.display = 'flex';
+            if (console) console.style.display = 'block';
         }
     } catch (error) {
         console.error('Error fetching workspace links:', error);
@@ -150,27 +172,40 @@ let watchlistData = [];
 let scannerData = [];
 let activeStrategy = 'all';
 
-async function fetchData() {
+async function fetchStocks() {
     const list = document.getElementById('stock-list');
     const indicator = document.querySelector('.status-indicator');
 
     try {
-        indicator.classList.add('loading');
+        if (indicator) indicator.classList.add('loading');
         // Fetch screened data (which includes strategies metadata)
+        console.log("Fetching latest stocks...");
         const response = await fetch('/api/screening');
-        watchlistData = await response.json();
+        const data = await response.json();
+        watchlistData = data;
         currentStocks = watchlistData;
 
+        console.log(`Stocks loaded: ${currentStocks.length}`);
         renderHeatmap(currentStocks);
         renderStocks();
 
     } catch (error) {
-        list.innerHTML = `<p style="text-align:center; color:var(--down-color);">CONNECTION ERROR</p>`;
+        if (list) list.innerHTML = `<p style="text-align:center; color:var(--down-color);">CONNECTION ERROR</p>`;
         console.error('Error fetching stocks:', error);
     } finally {
-        indicator.classList.remove('loading');
+        if (indicator) indicator.classList.remove('loading');
+        // Visual feedback for the refresh button
+        const refreshBtn = document.getElementById('refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.classList.add('refresh-success');
+            setTimeout(() => refreshBtn.classList.remove('refresh-success'), 1000);
+        }
     }
 }
+
+// Ensure it's available for onclick in HTML
+window.fetchStocks = fetchStocks;
+window.fetchData = fetchStocks; // Backward compatibility
 
 function setupTabs() {
     const tabs = document.querySelectorAll('.tab-btn');
@@ -185,11 +220,12 @@ function setupTabs() {
 
             // Logic
             activeStrategy = strategy;
+            console.log(`Tab clicked: ${activeStrategy}`);
             
             // Toggle Scanner Options
             const scannerOptions = document.getElementById('scanner-options');
             if (activeStrategy === 'scanner') {
-                scannerOptions.style.display = 'block';
+                if (scannerOptions) scannerOptions.style.display = 'block';
                 if (scannerData.length === 0) {
                     fetchScannerData();
                 } else {
@@ -197,8 +233,9 @@ function setupTabs() {
                     renderStocks();
                 }
             } else {
-                scannerOptions.style.display = 'none';
+                if (scannerOptions) scannerOptions.style.display = 'none';
                 currentStocks = watchlistData;
+                console.log(`Rendering watchlist stocks (Total: ${currentStocks.length}) for strategy: ${activeStrategy}`);
                 renderStocks();
             }
         });
@@ -206,25 +243,33 @@ function setupTabs() {
 }
 
 async function fetchScannerData() {
-    const type = document.getElementById('ranking-type').value;
+    const rankSelect = document.getElementById('ranking-type');
+    const type = rankSelect ? rankSelect.value : '1';
     const indicator = document.querySelector('.status-indicator');
     const list = document.getElementById('stock-list');
 
     try {
-        indicator.classList.add('loading');
+        if (indicator) indicator.classList.add('loading');
+        if (list) list.innerHTML = '<div class="loading-state"><div class="pulse-ring"></div><p>SCANNING MARKET...</p></div>';
+        
         const response = await fetch(`/api/market_scanner?type=${type}`);
         scannerData = await response.json();
         currentStocks = scannerData;
         renderStocks();
     } catch (error) {
         console.error('Error fetching scanner data:', error);
+        if (list) list.innerHTML = `<p style="text-align:center; color:var(--down-color);">SCANNER ERROR</p>`;
     } finally {
-        indicator.classList.remove('loading');
+        if (indicator) indicator.classList.remove('loading');
     }
 }
 
 function renderHeatmap(stocks) {
     const container = document.getElementById('heatmap-scroll');
+    if (!container) {
+        console.warn("Heatmap container not found (#heatmap-scroll)");
+        return;
+    }
     container.innerHTML = '';
 
     const sorted = [...stocks].sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent));
@@ -271,10 +316,10 @@ function renderStocks() {
         if (stock.matched_strategies) {
             stock.matched_strategies.forEach(st => {
                 const badgeNames = {
-                    'value_invest': '💎 VALUE',
-                    'high_dividend': '💰 DIVIDEND',
-                    'short_squeeze': '🔥 MOMENTUM',
-                    'rebound': '⚡ REBOUND'
+                    'value_invest': '💎 バリュー',
+                    'high_dividend': '💰 配当重視',
+                    'short_squeeze': '🔥 モメンタム',
+                    'rebound': '⚡ 反発期待'
                 };
                 if (badgeNames[st]) {
                     badgesHtml += `<span class="badge ${st}">${badgeNames[st]}</span>`;
@@ -320,8 +365,8 @@ function renderStocks() {
             ${aiReasoning}
 
             <div class="card-actions" style="display:flex; gap:8px; margin-top:16px;">
-                <button class="btn btn-primary" style="flex:1; height:40px; font-size:0.8rem;" onclick="copyPrompt('${stock.symbol}', event)">PROMPT</button>
-                <button class="btn btn-outline" style="flex:1; height:40px; font-size:0.8rem;" onclick="viewReport('${stock.symbol}')">INSIGHTS</button>
+                <button class="btn btn-primary" style="flex:1; height:40px; font-size:0.8rem;" onclick="copyPrompt('${stock.symbol}', event)">PROMPTコピー</button>
+                <button class="btn btn-outline" style="flex:1; height:40px; font-size:0.8rem;" onclick="viewReport('${stock.symbol}')">詳細分析</button>
             </div>
         `;
         list.appendChild(card);
@@ -478,6 +523,7 @@ function showManualPasteUI(symbol) {
             <div style="display:flex; gap:10px; align-items:center;">
                 <input type="number" id="manual-score-input" placeholder="スコア(0-10)" min="0" max="10" step="0.1" style="width:100px; padding:8px; background:#0d1117; color:white; border:1px solid #30363d; border-radius:4px;">
                 <button class="btn btn-primary" onclick="saveManualReport('${symbol}')">結果を保存する</button>
+                <button class="btn btn-outline btn-sm" onclick="copyAnalysisPrompt('${symbol}', document.getElementById('overlay-title').innerText.replace('ANALYSIS: ', ''))">PROMPTコピー</button>
                 <button class="btn" onclick="viewReport('${symbol}')">キャンセル</button>
             </div>
         </div>
@@ -570,14 +616,14 @@ function renderReport(data) {
     if (data.catalysts && Array.isArray(data.catalysts)) {
         html += `
             <div style="margin-top:20px; padding:15px; background:rgba(56, 139, 253, 0.1); border-radius:8px; border:1px solid rgba(56, 139, 253, 0.3);">
-                <h3 style="margin-top:0; font-size:1rem; color:#58a6ff;">🚀 CATALYSTS</h3>
+                <h3 style="margin-top:0; font-size:1rem; color:#58a6ff;">🚀 材料・カタリスト</h3>
                 <ul style="margin-bottom:0;">${data.catalysts.map(c => `<li>${c}</li>`).join('')}</ul>
             </div>
         `;
     }
 
     if (content.risks && Array.isArray(content.risks)) {
-        html += `<h3 style="margin-top:20px;">RISKS</h3><ul>${content.risks.map(r => `<li>${r}</li>`).join('')}</ul>`;
+        html += `<h3 style="margin-top:20px;">注意点・リスク</h3><ul>${content.risks.map(r => `<li>${r}</li>`).join('')}</ul>`;
     }
 
     reportDiv.innerHTML = html;
@@ -685,10 +731,10 @@ async function triggerMarketScan() {
         btn.disabled = true;
         const response = await fetch('/api/admin/scan-market', { method: 'POST' });
         const data = await response.json();
-        alert(data.message);
+        // Use console log instead of alert for non-disruptive feedback
+        console.log(data.message);
     } catch (error) {
         console.error('Market scan failed:', error);
-        alert('市場スキャンの開始に失敗しました。');
     } finally {
         setTimeout(() => {
             btn.innerHTML = originalText;

@@ -178,6 +178,12 @@ h1 {
     z-index: 1000;
     display: none;
     padding: 16px;
+    align-items: center;
+    justify-content: center;
+}
+
+.overlay.active {
+    display: flex;
 }
 
 .overlay-content {

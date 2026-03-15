@@ -107,14 +107,14 @@ async def get_stock_data_with_fallback(symbol: str, repo: StockRepository) -> St
         latest_prices = await repo.get_latest_prices(symbol, limit=1)
         if latest_prices:
             p = latest_prices[0]
-            # Sync name if it's currently Unknown
-            if data.symbolname.startswith("Mock") or data.symbolname == "Unknown":
+            # Sync name if it's currently Unknown but DB has a better name
+            if data.symbolname == "Unknown" or data.symbolname.startswith("銘柄"):
                 stock_master = await repo.get_or_create_stock(symbol)
                 if stock_master.name != "Unknown":
                     data.symbolname = stock_master.name
                 else:
-                    # Fallback if both are Unknown
-                    data.symbolname = f"銘柄 {symbol}"
+                    # Keep API data if it's better than "Unknown"
+                    pass
             
             data.currentprice = p.close
             data.previousclose = p.close # Approximate
@@ -124,7 +124,9 @@ async def get_stock_data_with_fallback(symbol: str, repo: StockRepository) -> St
             data.low = p.low
             data.rsi = p.rsi_14
             # We explicitly mark this as semi-real (historical fallback)
-            data.symbolname = f"{data.symbolname} (週末/閉場中)"
+            suffix = " (週末/閉場中)"
+            if suffix not in data.symbolname:
+                data.symbolname = f"{data.symbolname}{suffix}"
     return data
 
 @app.get("/api/stocks", response_model=List[StockData])
@@ -202,34 +204,6 @@ async def get_strategies(username: str = Depends(authenticate)):
     """Returns current strategy configurations."""
     return screener.get_strategy_config()
 
-@app.get("/api/market_scanner")
-async def get_market_scanner(type: str = "1", username: str = Depends(authenticate)):
-    """
-    Returns ranking data from the market.
-    Types: 1: Gainers, 2: Losers, 3: Volume, 4: Volume Spike
-    """
-    stocks = api_client.get_ranking(type)
-    if not stocks:
-        return []
-        
-    # Apply screening to ranking results to show matches
-    results = screener.filter_stocks(stocks)
-    
-    # Add AI summaries if available
-    async with AsyncSessionLocal() as session:
-        repo = StockRepository(session)
-        for stock_dict in results:
-            symbol = stock_dict["symbol"]
-            report = await repo.get_latest_analysis(symbol)
-            if report:
-                import json
-                try:
-                    content = json.loads(report.report_content)
-                    stock_dict["ai_summary"] = content.get("summary", "")
-                    stock_dict["ai_score"] = report.score
-                except:
-                    stock_dict["ai_summary"] = report.report_content[:150]
-    
     return results
 
 @app.get("/api/bulk_prompt")
@@ -511,6 +485,18 @@ async def get_workspace_links(username: str = Depends(authenticate)):
         "sheet": sheet_link,
         "reports": reports_link
     }
+
+@app.get("/api/market_scanner")
+async def get_scanner_results(type: str = "ranking", username: str = Depends(authenticate)):
+    """
+    Returns stocks that have been recently analyzed or have high AI scores.
+    This serves the 'Scanner' tab in the UI.
+    """
+    async with AsyncSessionLocal() as session:
+        repo = StockRepository(session)
+        # Fetch top 50 stocks sorted by AI score or updated time
+        stocks = await repo.get_top_ai_stocks(limit=50)
+        return stocks
 
 if __name__ == "__main__":
     import uvicorn
