@@ -30,42 +30,44 @@ async function copyAnalysisPrompt(symbol, name) {
 
 async function fetchWorkspaceLinks() {
     try {
-        const response = await fetch('/api/workspace/links');
-        const data = await response.json();
+        const response = await fetch('/api/workspace/files');
+        const files = await response.json();
         
-        if (data.sheet || data.root) {
-            const container = document.getElementById('workspace-links');
-            const console = document.getElementById('workspace-console');
+        const container = document.getElementById('workspace-links');
+        const console = document.getElementById('workspace-console');
+        
+        // Always show the console if the element exists
+        if (console) console.style.display = 'block';
+
+        if (container) {
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '8px';
             
-            // Header Icons
-            const sheetLink = document.getElementById('sheet-link');
-            const driveLink = document.getElementById('drive-link');
-            
-            // Console Links
-            const sheetLinkLarge = document.getElementById('sheet-link-large');
-            const driveLinkLarge = document.getElementById('drive-link-large');
-            
-            if (data.sheet && sheetLink) {
-                sheetLink.href = data.sheet;
-                if (sheetLinkLarge) sheetLinkLarge.href = data.sheet;
-            } else if (sheetLink) {
-                sheetLink.style.display = 'none';
-                if (sheetLinkLarge) sheetLinkLarge.parentElement.style.display = 'none';
+            if (files && files.length > 0) {
+                container.innerHTML = `
+                    <div style="font-size: 0.7rem; opacity: 0.7; margin-bottom: 8px;">Recent Intelligence:</div>
+                    ${files.slice(0, 5).map(f => `
+                        <a href="${f.path}" target="_blank" class="glass-card" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: #fff; padding: 10px; border: 1px solid rgba(255,255,255,0.1); transition: all 0.2s; background: rgba(255,255,255,0.03);">
+                            <span style="font-size: 1.2rem;">${f.category === 'AI_Reports' ? '📃' : '📊'}</span>
+                            <div style="overflow: hidden; flex: 1;">
+                                <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 0.75rem;">${f.name}</div>
+                                <div style="font-size: 0.6rem; opacity: 0.5;">${new Date(f.mtime).toLocaleString()}</div>
+                            </div>
+                        </a>
+                    `).join('')}
+                    ${files.length > 5 ? `<div style="font-size: 0.6rem; text-align: center; opacity: 0.4; margin-top: 4px;">...and ${files.length - 5} more files</div>` : ''}
+                `;
+            } else {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 20px; opacity: 0.5; font-size: 0.75rem; border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px;">
+                        No data collected yet.<br>Generating your first intelligence...
+                    </div>
+                `;
             }
-            
-            if (data.root && driveLink) {
-                driveLink.href = data.root;
-                if (driveLinkLarge) driveLinkLarge.href = data.root;
-            } else if (driveLink) {
-                driveLink.style.display = 'none';
-                if (driveLinkLarge) driveLinkLarge.parentElement.style.display = 'none';
-            }
-            
-            if (container) container.style.display = 'flex';
-            if (console) console.style.display = 'block';
         }
     } catch (error) {
-        console.error('Error fetching workspace links:', error);
+        console.error('Error fetching workspace files:', error);
     }
 }
 
@@ -362,6 +364,8 @@ function renderStocks() {
                 </div>
             </div>
 
+            <div id="notes-${stock.symbol}" class="llm-notes-container"></div>
+
             ${aiReasoning}
 
             <div class="card-actions" style="display:flex; gap:8px; margin-top:16px;">
@@ -370,7 +374,32 @@ function renderStocks() {
             </div>
         `;
         list.appendChild(card);
+        fetchNotes(stock.symbol);
     });
+}
+
+async function fetchNotes(symbol) {
+    const container = document.getElementById(`notes-${symbol}`);
+    if (!container) return;
+
+    try {
+        const response = await fetch(`/api/notes/${symbol}`);
+        const notes = await response.json();
+        
+        if (notes && notes.length > 0) {
+            container.innerHTML = `
+                <div class="section-title" style="margin-top: 12px; font-size: 0.65rem;">所見 (Local LLM)</div>
+                ${notes.map(n => `
+                    <div class="llm-note-item priority-${n.priority}">
+                        <span class="note-time">${new Date(n.created_at).toLocaleDateString()}</span>
+                        <p class="note-text">${n.note}</p>
+                    </div>
+                `).join('')}
+            `;
+        }
+    } catch (e) {
+        console.error(`Failed to fetch notes for ${symbol}:`, e);
+    }
 }
 
 function getRsiColor(val) {
@@ -735,6 +764,27 @@ async function triggerMarketScan() {
         console.log(data.message);
     } catch (error) {
         console.error('Market scan failed:', error);
+    } finally {
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }, 3000);
+    }
+}
+
+async function triggerEdinetScan() {
+    const btn = document.getElementById('scan-edinet-btn');
+    if (!btn) return;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '🔍 ANALYZING...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/admin/scan-edinet', { method: 'POST' });
+        const data = await response.json();
+        console.log('情報収集（EDINETスキャン）をバックグラウンドで開始しました。');
+    } catch (e) {
+        console.error('Failed to trigger EDINET scan:', e);
     } finally {
         setTimeout(() => {
             btn.innerHTML = originalText;

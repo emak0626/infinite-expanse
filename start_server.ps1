@@ -6,7 +6,12 @@ Write-Host "--- Starting AI Stock Analysis System ---" -ForegroundColor Cyan
 Write-Host "Initializing Database..."
 python init_db.py
 
-# 2. Start FastAPI Server
-Write-Host "Starting Server..."
-Write-Host "Access locally at: http://localhost:8000" -ForegroundColor Green
-uvicorn main:app --host 0.0.0.0 --port 8000
+# 2. Start Infinite Expanse System (Docker)
+Write-Host "Starting System via Docker Compose..." -ForegroundColor Green
+docker compose up -d
+
+Write-Host "------------------------------------------"
+Write-Host "System is starting in the background."
+Write-Host "Local Access: http://localhost:8000"
+Write-Host "Mobile Access: http://192.168.100.27:8000" -ForegroundColor Cyan
+Write-Host "------------------------------------------"

@@ -17,6 +17,7 @@ from batch_screener import BatchScreener
 from docs_manager import DocsManager
 from edinet_client import EdinetClient
 from local_agent import LocalAgent
+from workspace_manager import workspace_mgr
 
 # Initialize Clients
 real_client = KabucomClient()
@@ -86,22 +87,14 @@ async def fetch_stock_data_job():
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 
-        # 3. Sync to Google Sheets (Master Watchlist)
+        # 3. Save to Local Workspace (replacing Sheets)
         if fetched_data_list:
             df = pd.DataFrame(fetched_data_list)
             try:
-                # Ensure folder structure exists
-                _, folder_map = drive_mgr.setup_system_folders()
-                market_data_folder_id = folder_map.get("01_Market_Data")
-                
-                sheets_mgr.write_dataframe(
-                    spreadsheet_title="Master_Watchlist",
-                    sheet_name="Realtime_Data",
-                    df=df,
-                    folder_id=market_data_folder_id
-                )
+                path = workspace_mgr.save_csv(df, "Master_Watchlist.csv")
+                print(f"Data synced to local workspace: {path}")
             except Exception as e:
-                print(f"Skipping sync to Sheets (API might be disabled): {e}")
+                print(f"Failed to save data to workspace: {e}")
 
 async def run_daily_analysis():
     """
@@ -201,14 +194,9 @@ async def run_daily_analysis():
                     md_report += f"## Risks\n" + "\n".join([f"- {r}" for r in analysis.get('risks', [])]) + "\n\n"
                     md_report += f"## Opportunities\n" + "\n".join([f"- {o}" for o in analysis.get('opportunities', [])]) + "\n"
 
-                    # Determine subfolder
-                    subfolder_name = "Long_Term" if tag == "Long-term" else "Short_Term_Swing"
-                    sub_folder_id = drive_mgr.get_folder_id(subfolder_name, parent_id=reports_folder_id)
-                    if not sub_folder_id:
-                        sub_folder_id = drive_mgr.create_folder(subfolder_name, parent_id=reports_folder_id)
-
-                    docs_mgr.create_doc_from_markdown(report_title, md_report, folder_id=sub_folder_id)
-                    print(f"Report and Doc created for {symbol}")
+                    # Save to Local Workspace
+                    path = workspace_mgr.save_report(report_title, md_report)
+                    print(f"Report saved to local workspace: {path}")
 
                     # Phase 2: Index into Long-Term Memory (RAG)
                     await agent.kb.add_knowledge(symbol, analysis.get("reasoning", ""), "Daily AI Analysis Report")
@@ -239,6 +227,14 @@ async def run_edinet_scan():
             
             if screening.get("is_important"):
                 print(f"-> [IMPORTANT] Local LLM tagged for deep analysis: {screening.get('reason')}")
+                # Save Detailed Disclosure Report to Workspace
+                report_content = f"# 重要開示レポート: {doc['title']}\n\n"
+                report_content += f"**銘柄**: {doc['symbol']}\n"
+                report_content += f"**タイトル**: {doc['title']}\n"
+                report_content += f"**判定理由**: {screening.get('reason')}\n\n"
+                report_content += "---"
+                workspace_mgr.save_report(f"Disclosure_{doc['symbol']}", report_content)
+                
                 await repo.add_stock_note(doc['symbol'], f"重要開示({screening.get('priority')}): {doc['title']} - {screening.get('reason')}")
                 # In next step, we could trigger agent.analyze with higher priority here
             else:
@@ -260,3 +256,6 @@ def start_scheduler():
     
     scheduler.start()
     print("Scheduler Started with Google Workspace Sync and AI Pipeline.")
+    
+    # Trigger initial scan on startup to ensure data exists
+    asyncio.create_task(run_edinet_scan())

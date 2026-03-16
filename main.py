@@ -15,6 +15,8 @@ from bulk_screener import BulkScreener
 import os
 import time
 import asyncio
+from datetime import datetime
+import json
 from functools import wraps
 
 def retry_db_async(max_retries=3, delay=1):
@@ -107,26 +109,34 @@ async def get_stock_data_with_fallback(symbol: str, repo: StockRepository) -> St
         latest_prices = await repo.get_latest_prices(symbol, limit=1)
         if latest_prices:
             p = latest_prices[0]
-            # Sync name if it's currently Unknown but DB has a better name
             if data.symbolname == "Unknown" or data.symbolname.startswith("銘柄"):
                 stock_master = await repo.get_or_create_stock(symbol)
                 if stock_master.name != "Unknown":
                     data.symbolname = stock_master.name
-                else:
-                    # Keep API data if it's better than "Unknown"
-                    pass
             
             data.currentprice = p.close
-            data.previousclose = p.close # Approximate
+            data.previousclose = p.close
             data.change_percent = 0.0
             data.volume = p.volume
             data.high = p.high
             data.low = p.low
             data.rsi = p.rsi_14
-            # We explicitly mark this as semi-real (historical fallback)
-            suffix = " (週末/閉場中)"
-            if suffix not in data.symbolname:
-                data.symbolname = f"{data.symbolname}{suffix}"
+            
+            # Refined market status logic
+            import datetime
+            now = datetime.datetime.now()
+            # JST is UTC+9. We assume the system is running in JST or can handle it.
+            # Market is open Mon-Fri, 9:00-11:30 and 12:30-15:00.
+            is_weekend = now.weekday() >= 5
+            is_off_hours = now.hour < 9 or now.hour >= 15
+            
+            # Only show "Closed" if it's actually off-hours OR if MOCK_MODE is false but we got a mock fallback
+            should_show_closed = (not settings.MOCK_MODE) or is_weekend or is_off_hours
+            
+            if should_show_closed:
+                suffix = " (週末/閉場中)"
+                if suffix not in data.symbolname:
+                    data.symbolname = f"{data.symbolname}{suffix}"
     return data
 
 @app.get("/api/stocks", response_model=List[StockData])
@@ -443,6 +453,12 @@ async def save_manual_report(symbol: str, report: dict, username: str = Depends(
             score=score,
             thinking_level="manual_paste"
         )
+        
+        # Also save as physical file in Local Hub
+        from workspace_manager import workspace_mgr
+        report_title = f"Manual_Analysis_{symbol}_{datetime.now().strftime('%H%M')}"
+        workspace_mgr.save_report(report_title, f"# Manual Analysis Report: {symbol}\n\n{content_text}")
+        
         return {"status": "success"}
 
 @app.get("/api/history/{symbol}")
@@ -464,17 +480,68 @@ async def get_history(symbol: str, limit: int = 60, username: str = Depends(auth
             for p in reversed(prices)
         ]
 
-# Mount trade reports as static files to allow direct viewing
-if not os.path.exists("trade_reports"):
-    os.makedirs("trade_reports")
-app.mount("/trade_reports", StaticFiles(directory="trade_reports"), name="trade_reports")
+# Mount workspace for local hub access
+if not os.path.exists("workspace"):
+    os.makedirs("workspace")
+app.mount("/workspace", StaticFiles(directory="workspace"), name="workspace")
+
+@app.get("/explorer", response_class=HTMLResponse)
+async def get_explorer_page(username: str = Depends(authenticate)):
+    """Serves the dedicated workspace file explorer page."""
+    with open("templates/explorer.html", "r", encoding="utf-8") as f:
+        return f.read()
+
+@app.get("/api/workspace/files")
+async def list_workspace_files(category: str = None, username: str = Depends(authenticate)):
+    """Returns a list of local files in the workspace hub."""
+    from workspace_manager import workspace_mgr
+    return workspace_mgr.list_files(category)
+
+@app.get("/api/workspace/structure")
+async def get_workspace_structure(username: str = Depends(authenticate)):
+    """Returns the full hierarchical structure of the workspace."""
+    from workspace_manager import workspace_mgr
+    def get_dir_tree(path, base_url):
+        tree = []
+        if not os.path.exists(path): return tree
+        for item in os.listdir(path):
+            full_path = os.path.join(path, item)
+            is_dir = os.path.isdir(full_path)
+            node = {
+                "name": item,
+                "is_dir": is_dir,
+                "path": f"{base_url}/{item}"
+            }
+            if is_dir:
+                node["children"] = get_dir_tree(full_path, f"{base_url}/{item}")
+            else:
+                stats = os.stat(full_path)
+                node["mtime"] = datetime.fromtimestamp(stats.st_mtime).isoformat()
+                node["size"] = stats.st_size
+            tree.append(node)
+        return sorted(tree, key=lambda x: (not x["is_dir"], x["name"]))
+
+    return get_dir_tree("workspace", "/workspace")
 
 @app.get("/api/workspace/links")
 async def get_workspace_links(username: str = Depends(authenticate)):
-    """Returns links to the Google Drive folder and Master Watchlist sheet."""
+    """Legacy endpoint. Redirects logic to local files."""
+    return {"root": "/workspace/Market_Data", "reports": "/workspace/AI_Reports", "sheet": "/workspace/Market_Data/Master_Watchlist.csv"}
     try:
+        # Try to get specific links
         root_link = drive_mgr.get_web_link(drive_mgr.root_folder_name)
+        if not root_link:
+            print("Workspace folders not found. Initializing...")
+            root_link, _ = drive_mgr.setup_system_folders()
+            
+        # Get sheet link by name
         sheet_link = drive_mgr.get_web_link("Master_Watchlist")
+        if not sheet_link:
+            # Try searching for any spreadsheet if specific name fails
+            results = drive_mgr.service.files().list(q="mimeType = 'application/vnd.google-apps.spreadsheet' and name contains 'Master_Watchlist' and trashed = false", fields="files(webViewLink)").execute()
+            items = results.get('files', [])
+            if items: sheet_link = items[0].get('webViewLink')
+
         reports_link = drive_mgr.get_web_link("02_AI_Daily_Reports")
     except Exception as e:
         print(f"Error fetching workspace links (possibly API disabled): {e}")
@@ -501,6 +568,34 @@ async def get_scanner_results(type: str = "ranking", username: str = Depends(aut
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.get("/api/notes/{symbol}")
+async def get_stock_notes(symbol: str, username: str = Depends(authenticate)):
+    """Returns local LLM (EDINET) notes for a stock."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select, desc
+        from models_db import StockNote
+        stmt = select(StockNote).where(StockNote.symbol == symbol).order_by(desc(StockNote.created_at))
+        result = await session.execute(stmt)
+        notes = result.scalars().all()
+        return [
+            {
+                "id": n.id,
+                "note": n.note,
+                "priority": n.priority,
+                "created_at": n.created_at.isoformat()
+            }
+            for n in notes
+        ]
+
+@app.post("/api/admin/scan-edinet")
+async def trigger_edinet_scan(background_tasks: BackgroundTasks):
+    """
+    Triggers the EDINET scan and Local LLM screening manually.
+    """
+    from scheduler import run_edinet_scan
+    background_tasks.add_task(run_edinet_scan)
+    return {"status": "EDINET scan started in background"}
 
 @app.post("/api/admin/scan-market")
 async def trigger_market_scan(background_tasks: BackgroundTasks):

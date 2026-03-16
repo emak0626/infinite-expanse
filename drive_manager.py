@@ -34,8 +34,9 @@ class DriveManager:
         if parent_id:
             file_metadata['parents'] = [parent_id]
         
-        file = self.service.files().create(body=file_metadata, fields='id').execute()
+        file = self.service.files().create(body=file_metadata, fields='id, webViewLink').execute()
         folder_id = file.get('id')
+        web_link = file.get('webViewLink')
         print(f"Created folder: {folder_name} (ID: {folder_id})")
         
         # Share with anyone with link
@@ -66,20 +67,20 @@ class DriveManager:
         root_id = self.get_folder_id(self.root_folder_name)
         if not root_id:
             root_id = self.create_folder(self.root_folder_name)
-        else:
-            print(f"Root folder found: {self.root_folder_name} (ID: {root_id})")
+        
+        root_link = self.get_web_link(self.root_folder_name)
 
         # 2. Sub folders
-        folder_map = {}
+        link_map = {}
         for sub in self.sub_folders:
             sub_id = self.get_folder_id(sub, parent_id=root_id)
             if not sub_id:
                 sub_id = self.create_folder(sub, parent_id=root_id)
-            else:
-                print(f"Sub-folder found: {sub} (ID: {sub_id})")
-            folder_map[sub] = sub_id
+            
+            link = self.get_web_link(sub, parent_id=root_id)
+            link_map[sub] = link
         
-        return root_id, folder_map
+        return root_link, link_map
 
     def get_web_link(self, name, parent_id=None):
         """Retrieves the webViewLink for a given file/folder name."""

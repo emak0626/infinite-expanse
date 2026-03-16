@@ -219,3 +219,38 @@ h1 {
     border-radius: 50%;
 }
 .status-indicator.online { background: var(--success); box-shadow: 0 0 6px var(--success-glow); }
+
+/* LLM Notes */
+.llm-notes-container {
+    margin: 10px 0;
+    font-size: 0.85rem;
+}
+
+.llm-note-item {
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-left: 3px solid var(--accent);
+}
+
+.llm-note-item.priority-high {
+    border-left-color: var(--danger);
+    background: rgba(248, 81, 73, 0.1);
+}
+
+.llm-note-item.priority-medium {
+    border-left-color: var(--warning);
+}
+
+.note-time {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.note-text {
+    margin: 0;
+    line-height: 1.4;
+}

@@ -139,3 +139,19 @@ class StockRepository:
             }
             for r in result.all()
         ]
+    async def add_stock_note(self, symbol: str, note: str, priority: str = "low"):
+        """
+        Adds a note for a stock (e.g., from local LLM screening).
+        """
+        # Ensure stock exists
+        await self.get_or_create_stock(symbol)
+        
+        from models_db import StockNote
+        new_note = StockNote(
+            symbol=symbol,
+            note=note,
+            priority=priority,
+            created_at=datetime.now()
+        )
+        self.session.add(new_note)
+        await self.session.commit()

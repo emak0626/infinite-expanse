@@ -25,10 +25,7 @@
                 </div>
             </div>
             <div class="header-actions">
-                <div id="workspace-links" style="display: none; align-items: center; gap: 8px; margin-right: 12px;">
-                    <a id="sheet-link" href="#" target="_blank" class="glass-icon" title="Sheets">📊</a>
-                    <a id="drive-link" href="#" target="_blank" class="glass-icon" title="Drive">📁</a>
-                </div>
+                <button id="scan-edinet-btn" class="btn btn-outline btn-sm" onclick="triggerEdinetScan()" title="定期収集の他に今すぐ収集を開始します">🔍 AUTO INFO</button>
                 <button id="scan-market-btn" class="btn btn-primary btn-sm" onclick="triggerMarketScan()" title="全市場スキャン開始">📡 SCAN</button>
                 <button id="refresh-btn" class="icon-btn" onclick="fetchStocks()">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
@@ -75,12 +72,14 @@
                 </div>
             </div>
 
-            <!-- Workspace Console -->
+            <!-- Workspace Console (Local Hub) -->
             <div id="workspace-console" class="glass-card animate-in" style="display: none; margin: 24px 0; padding: 16px;">
-                <div class="section-title" style="margin: 0 0 12px 0;">Intelligence Hub</div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <a id="sheet-link-large" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.8rem; padding: 10px;">📊 Master Sheet</a>
-                    <a id="drive-link-large" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.8rem; padding: 10px;">📁 Drive Folder</a>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div class="section-title" style="margin: 0;">Intelligence Hub</div>
+                    <a href="/explorer" class="btn btn-outline btn-xs" style="font-size: 0.65rem; padding: 4px 8px;">📂 フルエクスプローラー</a>
+                </div>
+                <div id="workspace-links">
+                    <!-- Files will be dynamically listed here -->
                 </div>
             </div>
         </div>

@@ -102,3 +102,16 @@ class DocumentChunk(Base):
     
     metadata_json: Mapped[Optional[str]] = mapped_column(Text) # Source (Annual Report 2024, etc.)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+class StockNote(Base):
+    """
+    Stores findings from Local LLM (e.g., EDINET screening).
+    """
+    __tablename__ = "stock_notes"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(ForeignKey("stock_masters.symbol"), index=True)
+    note: Mapped[str] = mapped_column(Text)
+    priority: Mapped[Optional[str]] = mapped_column(String(20)) # low, medium, high
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    stock: Mapped["StockMaster"] = relationship()
