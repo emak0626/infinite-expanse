@@ -1,7 +1,8 @@
 import asyncio
+import os
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 
 from kabu_api import KabuApiClient
@@ -10,8 +11,11 @@ from local_agent import LocalAgent
 from analyzer_agent import GeminiAgent
 from config import settings
 from database import AsyncSessionLocal
+from workspace_manager import workspace_mgr
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+jst = timezone(timedelta(hours=9))
 
 class BulkScreener:
     """
@@ -23,91 +27,195 @@ class BulkScreener:
     def __init__(self):
         self.api_client = KabuApiClient()
         self.local_agent = LocalAgent()
+        self.cancel_requested = False
         # Ensure we use Gemini 2.0 Flash for efficiency/free tier
         self.gemini_agent = GeminiAgent(model_id="gemini-2.0-flash-exp") 
         self.is_running = False
+        self.state_file = "workspace/System_Config/scan_state.json"
+        self._ensure_state_dir()
+
+    def _ensure_state_dir(self):
+        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+
+    def get_status(self):
+        """Returns the current status and last run time."""
+        state = self._load_state()
+        return {
+            "is_running": self.is_running,
+            "last_scan_at": state.get("last_scan_at"),
+            "last_scan_count": state.get("last_scan_count", 0)
+        }
+
+    def _load_state(self):
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+
+    def _save_state(self, last_at, count, last_ai_at=None):
+        state = self._load_state()
+        state.update({"last_scan_at": last_at, "last_scan_count": count})
+        if last_ai_at:
+            state["last_ai_scan_at"] = last_ai_at
+        with open(self.state_file, 'w') as f:
+            json.dump(state, f)
+
+    async def run_technical_scan(self, strategy: str = "short"):
+        """
+        Fast scan for active stocks based on strategy.
+        short: Price Up / Volume Spike
+        long: low PER / High Dividend
+        undervalued: low PBR
+        """
+        if self.is_running:
+            return {"error": "Scan already in progress."}
+        
+        self.is_running = True
+        logger.info(f"Starting Technical Market Scan (Strategy: {strategy})...")
+        jst = timezone(timedelta(hours=9))
+        start_time = datetime.now(jst)
+        
+        try:
+            # 1. Map strategy to ranking types
+            if strategy == "long":
+                rank_types = ["13", "15"] # low PER, High Dividend
+            elif strategy == "undervalued":
+                rank_types = ["14"] # low PBR
+            else: # short (default)
+                rank_types = ["1", "4"] # Price Up, Volume Spike
+            
+            all_ranking_stocks = []
+            for r_type in rank_types:
+                try:
+                    stocks = self.api_client.get_ranking(r_type)
+                    all_ranking_stocks.extend(stocks)
+                except Exception as e:
+                    logger.error(f"Failed to fetch ranking type {r_type}: {e}")
+            
+            # De-duplicate
+            unique_stocks = {s.symbol: s for s in all_ranking_stocks}.values()
+            
+            scan_results = []
+            for stock in unique_stocks:
+                scan_results.append({
+                    "銘柄コード": stock.symbol,
+                    "銘柄名": stock.symbolname,
+                    "終値": stock.currentprice,
+                    "騰落率": stock.change_percent,
+                    "出来高": stock.volume,
+                    "RSI": stock.rsi,
+                    "PER": stock.per,
+                    "PBR": stock.pbr,
+                    "利回り": stock.dividend_yield,
+                    "AIスコア": 0.0,
+                    "AI要約": f"未実行 (戦略: {strategy})",
+                    "ソース": f"Technical-{strategy}"
+                })
+            
+            if scan_results:
+                df = pd.DataFrame(scan_results)
+                workspace_mgr.save_csv(df, "Market_Scan_Results.csv")
+                logger.info(f"Technical scan found {len(scan_results)} stocks and saved to CSV.")
+            
+            self._save_state(start_time.isoformat(), len(scan_results))
+            return {"count": len(scan_results), "time": start_time.isoformat()}
+        except Exception as e:
+            logger.error(f"Technical scan failed: {e}")
+            return {"error": str(e)}
+        finally:
+            self.is_running = False
+
+    async def run_ai_screening(self):
+        """
+        Runs Local LLM on the stocks listed in Market_Scan_Results.csv.
+        """
+        if self.is_running:
+            return {"error": "AI screening already in progress."}
+        
+        csv_path = workspace_mgr.get_path("market", "Market_Scan_Results.csv")
+        if not os.path.exists(csv_path):
+            return {"error": "Technical scan results not found. Run SCAN first."}
+            
+        self.is_running = True
+        logger.info("Starting Local AI Screening for CSV items...")
+        jst = timezone(timedelta(hours=9))
+        
+        try:
+            df = pd.read_csv(csv_path)
+            updated_results = []
+            total_processed = 0
+            
+            # Limited to first 50 results to avoid UI/Timeout issues for manual trigger
+            target_df = df.head(50) 
+            
+            self.cancel_requested = False
+            for index, row in target_df.iterrows():
+                if self.cancel_requested:
+                    logger.info("AI Screening cancelled by user.")
+                    break
+                
+                symbol = str(row["銘柄コード"])
+                name = row["銘柄名"]
+                source_val = str(row.get("ソース", "short"))
+                strategy = source_val.split("-")[-1] if "-" in source_val else "short"
+                
+                context = f"Ticker: {symbol}, Name: {name}, Price: {row['終値']}, Chg%: {row['騰落率']}, RSI: {row['RSI']}"
+                if "PER" in row: context += f", PER: {row['PER']}, PBR: {row['PBR']}, Yield: {row['利回り']}"
+                
+                screening = await self.local_agent.screen_document(symbol, f"Market Screening: {name}", context, strategy=strategy)
+                
+                analysis = {
+                    "score": 5.0 if screening.get("priority") == "medium" else (7.0 if screening.get("priority") == "high" else 3.0),
+                    "summary": screening.get("reason"),
+                    "reasoning": f"Local LLM Screening Result: {screening.get('reason')}\nContext: {context}",
+                    "source": "Local LLM (Scan)"
+                }
+                
+                async with AsyncSessionLocal() as session:
+                    repo = StockRepository(session)
+                    await repo.save_analysis(symbol, analysis, "low")
+                
+                report_title = f"ScanAI_{symbol}_{name}"
+                md_content = f"# 【AIスクリーニング】 {name} ({symbol})\n"
+                md_content += f"**分析日時:** {datetime.now(jst).strftime('%Y-%m-%d %H:%M')} (JST)\n"
+                md_content += f"**AIスコア:** {analysis['score']}/10\n"
+                md_content += f"## 判定理由\n{analysis['summary']}\n\n"
+                md_content += f"## データ根拠\n{context}\n"
+                workspace_mgr.save_report(report_title, md_content)
+                
+                row["AIスコア"] = analysis["score"]
+                row["AI要約"] = analysis["summary"]
+                row["ソース"] = "Local-AI"
+                updated_results.append(row)
+                total_processed += 1
+                await asyncio.sleep(0.01)
+                
+            if updated_results:
+                new_df = pd.DataFrame(updated_results)
+                workspace_mgr.save_csv(new_df, "Market_Scan_Results.csv")
+                
+            last_ai_at = datetime.now(jst).isoformat()
+            self._save_state(datetime.now(jst).isoformat(), total_processed, last_ai_at=last_ai_at)
+            return {"count": total_processed, "time": last_ai_at}
+        except Exception as e:
+            logger.error(f"AI screening failed: {e}")
+            return {"error": str(e)}
+        finally:
+            self.is_running = False
 
     async def run_market_scan(self, thinking_level: str = "standard"):
         """
-        Scans all listed stocks in a multi-stage process.
+        Scheduled Full Scan: Technical then AI automatically.
         """
-        if self.is_running:
-            logger.warning("Scan already in progress.")
-            return
+        logger.info("[Scheduled] Starting Full Hybrid Scan...")
+        tech_res = await self.run_technical_scan()
+        if "error" in tech_res: return
         
-        self.is_running = True
-        logger.info("Starting Full Market Hybrid Scan...")
-
-        try:
-            async with AsyncSessionLocal() as session:
-                repo = StockRepository(session)
-                # 1. Get all symbols from Master
-                stocks = await repo.get_all_stocks()
-                logger.info(f"Targeting {len(stocks)} symbols.")
-
-            candidates = []
-
-            # 2. Tier 1: Local Pre-screening (Favor Local LLM)
-            for stock in stocks:
-                # Optimized prompt to be even stricter to save Gemini quota
-                context = f"Company: {stock.name}. Recent performance check."
-                screening = await self.local_agent.screen_document(stock.symbol, f"Market Status Check: {stock.name}", context)
-                
-                # Only pass 'high' priority to Gemini, handle others locally or watch
-                if screening.get("is_important") and screening.get("priority") == "high":
-                    logger.info(f"Local Filter -> [PASS to Gemini] {stock.symbol} ({stock.name}): {screening['reason']}")
-                    candidates.append(stock)
-                elif screening.get("is_important"):
-                    # Save a medium-confidence screening directly using local analysis
-                    logger.info(f"Local Filter -> [LOCAL SAVE] {stock.symbol} ({stock.name})")
-                    analysis = {
-                        "score": 5.0 if screening.get("priority") == "medium" else 3.0,
-                        "summary": screening.get("reason"),
-                        "reasoning": f"Local LLM determined moderate importance: {screening['reason']}",
-                        "persona_views": {"value": "Local screening pass", "risk": "Moderate priority"},
-                        "source": "Local LLM"
-                    }
-                    async with AsyncSessionLocal() as session:
-                        repo = StockRepository(session)
-                        await repo.save_analysis(stock.symbol, analysis, thinking_level)
-                
-                await asyncio.sleep(0.05)
-
-            logger.info(f"Tier 1 completed. {len(candidates)} high-priority candidates passed to Gemini.")
-
-            # 3. Tier 2: Gemini 2.0 Flash Deep Analysis (Throttled for Free Tier)
-            # Free tier: 15 RPM
-            batch_size = 14 
-            for i in range(0, len(candidates), batch_size):
-                batch = candidates[i:i+batch_size]
-                tasks = []
-                for stock in batch:
-                    # Construct context (Price + Recent History)
-                    # Note: repository.get_stock_history or similar should be used here
-                    # For brevity, we pass a summary context
-                    context = f"Company: {stock.name}. Recent master record check."
-                    tasks.append(self.gemini_agent.analyze(stock, context, thinking_level=thinking_level))
-                
-                results = await asyncio.gather(*tasks)
-                
-                for stock, analysis in zip(batch, results):
-                    if "error" not in analysis:
-                        async with AsyncSessionLocal() as session:
-                            repo = StockRepository(session)
-                            await repo.save_analysis(stock.symbol, analysis, thinking_level)
-                        logger.info(f"Tier 2 -> [SAVED] {stock.symbol} Score: {analysis.get('score')}")
-                        # Index to RAG as well
-                        await self.gemini_agent.kb.add_knowledge(stock.symbol, analysis.get("reasoning", ""), "Bulk Market Scan")
-
-                if i + batch_size < len(candidates):
-                    logger.info("Throttling Gemini API (Free Tier Limit)...")
-                    await asyncio.sleep(65) # 1 minute pause between batches to respect 15 RPM
-
-        except Exception as e:
-            logger.error(f"Market scan failed: {e}")
-        finally:
-            self.is_running = False
-            logger.info("Full Market Scan Completed.")
+        await asyncio.sleep(1)
+        await self.run_ai_screening()
 
 if __name__ == "__main__":
     # Test stub

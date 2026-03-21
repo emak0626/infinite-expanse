@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Explorer - Intelligence Hub</title>
+    <title>ファイルエクスプローラー - Intelligence Hub</title>
     <link rel="stylesheet" href="/static/style_components.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
@@ -74,16 +74,31 @@
 <body>
     <div class="explorer-container">
         <div class="header">
-            <a href="/" class="back-link">← Back to Dashboard</a>
-            <h2 style="margin:0;">Intelligence Explorer</h2>
+            <a href="/" class="back-link">← ダッシュボードに戻る</a>
+            <h2 style="margin:0;">インテリジェンス・エクスプローラー</h2>
             <div style="font-size:0.8rem; opacity:0.6;">D:\infinite-expanse-data\workspace</div>
         </div>
 
+        <div id="explorer-toolbar" class="glass-card" style="margin-bottom: 12px; padding: 10px; display: flex; align-items: center; gap: 15px; background: rgba(255,255,255,0.03);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this)" style="cursor: pointer;">
+                <label for="select-all-checkbox" style="font-size: 0.8rem; cursor: pointer;">すべて選択</label>
+            </div>
+            <div id="bulk-actions" style="display: none; gap: 10px; align-items: center; border-left: 1px solid var(--border); padding-left: 15px;">
+                <span id="selected-count" style="font-size: 0.8rem; opacity: 0.8;">0件選択中</span>
+                <button class="btn btn-outline btn-xs trash-btn" onclick="bulkMoveToTrash()" style="font-size: 0.7rem; padding: 4px 8px;">🗑️ 一括ゴミ箱</button>
+                <button class="btn btn-outline btn-xs delete-btn" onclick="bulkDeletePermanent()" style="font-size: 0.7rem; padding: 4px 8px;">✕ 一括削除</button>
+            </div>
+            <button onclick="triggerFullSync(event)" class="btn btn-outline btn-xs" style="margin-left: auto; font-size: 0.7rem; color: #58a6ff;">☁️ Drive全同期</button>
+            <button onclick="fetchStructure()" class="btn btn-outline btn-xs" style="font-size: 0.7rem;">🔄 更新</button>
+        </div>
+
         <div id="file-tree" class="glass-card">
-            <div class="loading-state" style="padding: 40px; text-align: center;">Loading structure...</div>
+            <div class="loading-state" style="padding: 40px; text-align: center;">ディレクトリ構造を読み込み中...</div>
         </div>
     </div>
 
+    <script src="/static/script.js"></script>
     <script>
         async function fetchStructure() {
             try {
@@ -91,14 +106,14 @@
                 const data = await response.json();
                 renderTree(data, document.getElementById('file-tree'));
             } catch (err) {
-                document.getElementById('file-tree').innerHTML = '<div class="empty-msg">Failed to load structure.</div>';
+                document.getElementById('file-tree').innerHTML = '<div class="empty-msg">ディレクトリ構造の取得に失敗しました。</div>';
             }
         }
 
         function renderTree(nodes, container) {
             container.innerHTML = '';
             if (!nodes || nodes.length === 0) {
-                container.innerHTML = '<div class="empty-msg">No files found.</div>';
+                container.innerHTML = '<div class="empty-msg">ファイルが見つかりません。</div>';
                 return;
             }
 
@@ -117,7 +132,8 @@
                     const childrenContainer = div.querySelector('.children');
                     renderTree(node.children, childrenContainer);
                     
-                    div.querySelector('.folder').onclick = () => {
+                    div.querySelector('.folder').onclick = (e) => {
+                        if (e.target.type === 'checkbox') return;
                         const isHidden = childrenContainer.style.display === 'none';
                         childrenContainer.style.display = isHidden ? 'block' : 'none';
                         div.querySelector('.icon').innerText = isHidden ? '📂' : '📁';
@@ -125,18 +141,102 @@
                 } else {
                     const date = new Date(node.mtime).toLocaleString();
                     const size = (node.size / 1024).toFixed(1) + ' KB';
+                    const isTrash = node.path.includes('/Trash/') || node.path.includes('\\Trash\\');
+                    const cleanPath = node.path.replace(/\\/g, '/');
+
                     div.innerHTML = `
-                        <a href="${node.path}" target="_blank" class="file">
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <span class="icon">${node.name.endsWith('.csv') ? '📊' : '📃'}</span>
-                                <span>${node.name}</span>
+                        <div class="file-item-row" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="display:flex; align-items:center; gap:10px; flex:1;">
+                                <input type="checkbox" class="file-checkbox" data-path="${cleanPath}" onchange="updateBulkUI()" style="cursor: pointer;">
+                                <a href="${node.path}" target="_blank" class="file" style="flex:1;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span class="icon">${node.name.endsWith('.csv') ? '📊' : '📃'}</span>
+                                        <span>${node.name}</span>
+                                    </div>
+                                    <div class="file-info">${date} | ${size}</div>
+                                </a>
                             </div>
-                            <div class="file-info">${date} | ${size}</div>
-                        </a>
+                            <button onclick="${isTrash ? `deletePermanent('${cleanPath}')` : `moveToTrash('${cleanPath}')`}" 
+                                    class="icon-btn ${isTrash ? 'delete-btn' : 'trash-btn'}" 
+                                    style="padding: 4px; background: transparent; border: none; cursor: pointer; color: #8b949e;" 
+                                    title="${isTrash ? '完全に削除' : 'ゴミ箱へ移動'}">
+                                ${isTrash ? '✕' : '🗑️'}
+                            </button>
+                        </div>
                     `;
                 }
                 container.appendChild(div);
             });
+        }
+
+        function updateBulkUI() {
+            const checkboxes = document.querySelectorAll('.file-checkbox:checked');
+            const toolbar = document.getElementById('bulk-actions');
+            const countLabel = document.getElementById('selected-count');
+            
+            if (checkboxes.length > 0) {
+                toolbar.style.display = 'flex';
+                countLabel.innerText = `${checkboxes.length}件選択中`;
+            } else {
+                toolbar.style.display = 'none';
+                document.getElementById('select-all-checkbox').checked = false;
+            }
+        }
+
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.file-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+            updateBulkUI();
+        }
+
+        async function bulkMoveToTrash() {
+            const paths = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.dataset.path);
+            console.log("[Explorer] Bulk move to trash requested for:", paths);
+            if (paths.length === 0) return;
+            if (!confirm(`${paths.length}件のアイテムをゴミ箱へ移動しますか？`)) return;
+
+            try {
+                const response = await fetch('/api/workspace/bulk_move_to_trash', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paths })
+                });
+                console.log("[Explorer] Bulk trash response status:", response.status);
+                if (response.ok) {
+                    fetchStructure();
+                    document.getElementById('select-all-checkbox').checked = false;
+                    updateBulkUI();
+                } else {
+                    alert("一括移動に失敗しました。");
+                }
+            } catch (err) {
+                console.error("[Explorer] Bulk trash error:", err);
+            }
+        }
+
+        async function bulkDeletePermanent() {
+            const paths = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.dataset.path);
+            console.log("[Explorer] Bulk delete permanent requested for:", paths);
+            if (paths.length === 0) return;
+            if (!confirm(`${paths.length}件のアイテムを永久に削除しますか？\nこの操作は取り消せません。`)) return;
+
+            try {
+                const response = await fetch('/api/workspace/bulk_delete_permanent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paths })
+                });
+                console.log("[Explorer] Bulk delete response status:", response.status);
+                if (response.ok) {
+                    fetchStructure();
+                    document.getElementById('select-all-checkbox').checked = false;
+                    updateBulkUI();
+                } else {
+                    alert("一括削除に失敗しました。");
+                }
+            } catch (err) {
+                console.error("[Explorer] Bulk delete error:", err);
+            }
         }
 
         fetchStructure();

@@ -1,6 +1,7 @@
 import os
 import shutil
-from datetime import datetime
+import time
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 
 class LocalWorkspaceManager:
@@ -9,7 +10,8 @@ class LocalWorkspaceManager:
         self.sub_folders = {
             "market": "Market_Data",
             "reports": "AI_Reports",
-            "system": "System_Config"
+            "system": "System_Config",
+            "trash": "Trash"
         }
         self._ensure_structure()
 
@@ -49,6 +51,8 @@ class LocalWorkspaceManager:
         files_list = []
         target_folders = [self.sub_folders[category]] if category else self.sub_folders.values()
         
+        jst = timezone(timedelta(hours=9))
+
         for folder in target_folders:
             folder_path = os.path.join(self.base_dir, folder)
             if not os.path.exists(folder_path): continue
@@ -61,10 +65,70 @@ class LocalWorkspaceManager:
                     "category": folder,
                     "path": f"/workspace/{folder}/{f}",
                     "size": stats.st_size,
-                    "mtime": datetime.fromtimestamp(stats.st_mtime).isoformat()
+                    "mtime": datetime.fromtimestamp(stats.st_mtime, tz=jst).isoformat()
                 })
         
         # Sort by modification time descending
         return sorted(files_list, key=lambda x: x['mtime'], reverse=True)
+
+    def move_to_trash(self, relative_path):
+        """Moves a file from its current location to the Trash folder using a relative path like /workspace/AI_Reports/f1.md"""
+        # Extract path relative to base_dir
+        # Assuming relative_path starts with /workspace/
+        clean_rel = relative_path.strip('/')
+        parts = clean_rel.split('/')
+        
+        if len(parts) < 2 or parts[0] != self.base_dir:
+            return False
+            
+        # Reconstruct source path relative to CWD
+        src_path = os.path.join(os.getcwd(), *parts)
+        filename = parts[-1]
+        dest_path = self.get_path("trash", filename)
+        
+        if os.path.exists(src_path):
+            # If destination exists, add a timestamp to avoid overwrite
+            if os.path.exists(dest_path):
+                ext = ".md" if filename.endswith(".md") else ".csv" if filename.endswith(".csv") else ""
+                dest_path = dest_path.replace(ext, f"_{int(time.time())}{ext}")
+            
+            os.rename(src_path, dest_path)
+            return True
+        return False
+
+    def delete_file(self, relative_path):
+        """Permanently deletes a file (relative path starting with /workspace/)"""
+        clean_rel = relative_path.strip('/')
+        parts = clean_rel.split('/')
+        
+        if len(parts) < 2 or parts[0] != self.base_dir:
+            return False
+            
+        abs_path = os.path.join(os.getcwd(), *parts)
+        
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+            return True
+        return False
+
+    def bulk_move_to_trash(self, relative_paths):
+        """Moves multiple files to trash."""
+        results = {"success": [], "failed": []}
+        for path in relative_paths:
+            if self.move_to_trash(path):
+                results["success"].append(path)
+            else:
+                results["failed"].append(path)
+        return results
+
+    def bulk_delete(self, relative_paths):
+        """Permanently deletes multiple files."""
+        results = {"success": [], "failed": []}
+        for path in relative_paths:
+            if self.delete_file(path):
+                results["success"].append(path)
+            else:
+                results["failed"].append(path)
+        return results
 
 workspace_mgr = LocalWorkspaceManager()

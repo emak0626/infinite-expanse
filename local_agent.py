@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import json
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -9,57 +10,139 @@ class LocalAgent:
     """
     Client for Local LLM (Ollama) to perform pre-screening and filtering.
     """
-    BASE_URL = "http://localhost:11434/api"
 
-    def __init__(self, model: str = "llama3.2:3b"):
-        self.model = model
+    def __init__(self, model_name: str = None):
+        self.model = model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        self.fallback_model = os.getenv("OLLAMA_MODEL_FALLBACK", "llama3.2:3b")
+        
+        # Priority: Environment variable OLLAMA_BASE_URL
+        env_url = os.environ.get("OLLAMA_BASE_URL")
+        if env_url:
+            self.BASE_URL = env_url.rstrip("/")
+            if not self.BASE_URL.endswith("/api"):
+                self.BASE_URL += "/api"
+        # Intelligent detection
+        else:
+            # Inside Docker, we almost always want host.docker.internal for Windows Host
+            if os.path.exists("/.dockerenv"):
+                self.BASE_URL = "http://host.docker.internal:11434/api"
+            else:
+                self.BASE_URL = "http://localhost:11434/api"
+            
+        logger.info(f"LocalAgent initialized. Base URL: {self.BASE_URL}, Primary Model: {self.model}")
 
-    async def screen_document(self, symbol: str, title: str, content_snippet: str = "") -> dict:
+    async def screen_document(self, symbol: str, title: str, content_snippet: str = "", strategy: str = "short") -> dict:
         """
-        Determines if a document (news or EDINET filing) is important enough for Gemini Pro analysis.
+        Calls local Ollama to analyze data based on investment strategy.
+        short: high momentum, volatility.
+        long: low risk, high yield, steady growth.
+        undervalued: safety margin, deep value.
         """
-        prompt = f"""
-        あなたは、株式市場の「門番（ゲートキーパー）」を務めるAIエージェントです。
-        以下の文書を読み、中長期投資の観点から「Gemini 1.5 Proによる詳細分析が必要な重要書類か」を判定してください。
+        strategy_instructions = {
+            "short": "短期的な急騰可能性、テクニカルな強さ、出来高増加、モメンタムを重視してください。",
+            "long": "長期的な配当利回り、収益の安定性、業界での地位、成長の持続性を重視してください。",
+            "undervalued": "PBR/PERの低さ、資産価値、安全域、下げ止まり感を重視してください。"
+        }
+        instr = strategy_instructions.get(strategy, strategy_instructions["short"])
 
-        銘柄: {symbol}
-        タイトル: {title}
-        内容（一部）: {content_snippet}
+        prompt = f"""あなたはプロの証券アナリストです。以下の銘柄データを分析し、投資の優先順位（有望度）を判定してください。
 
-        判定基準:
-        - 業績に重大な影響を与える（上方/下方修正、買収、提携）。
-        - 企業の存続やガバナンスに関わる重大事項。
-        - 成長戦略の大きな転換点。
-        - 単なる定例の事務的な報告は無視してください。
+投資戦略: {strategy}
+重視ポイント: {instr}
+銘柄コード: {symbol}
+タイトル: {title}
+データ詳細: {content_snippet}
 
-        出力形式 (JSON):
-        {{
-            "is_important": boolean,
-            "reason": "判断理由（日本語）",
-            "priority": "low | medium | high"
-        }}
-        """
+判定基準：
+- high: 戦略に合致し、強い買い材料がある
+- medium: 合致するが決定打に欠ける、または懸案事項がある
+- low: 合致しない、またはリスクが高い
+
+出力形式（JSONのみ、自然な日本語で回答してください）:
+{{"priority": "low"|"medium"|"high", "reason": "分析理由を30文字程度の自然な日本語で。"}}
+
+余計な説明は省き、純粋なJSONのみを出力してください。日本語の文字化けに注意してください。"""
 
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "format": "json"
+            "format": "json",
+            "keep_alive": "24h"  # Keep model in memory to avoid loading delays
         }
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(f"{self.BASE_URL}/generate", json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return json.loads(data.get("response", "{}"))
-                    else:
-                        logger.error(f"Ollama API failed with status {resp.status}")
-                        return {"is_important": True, "reason": "Error fallback (Local LLM down)", "priority": "high"}
-            except Exception as e:
-                logger.error(f"Local LLM connection error: {e}")
-                # Fallback to important if local LLM is down to avoid missing data
-                return {"is_important": True, "reason": "Connection fallback", "priority": "high"}
+        
+        # Retry configuration
+        max_retries = 5
+        retry_delay = 3 # initial delay in seconds
+        
+        for attempt in range(max_retries):
+            # Extended timeout for initial load or heavy processing
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                try:
+                    logger.info(f"Connecting to Local AI at {self.BASE_URL} (Model: {self.model}, Attempt: {attempt+1}/{max_retries})...")
+                    async with session.post(f"{self.BASE_URL}/generate", json=payload) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            raw_response = data.get("response", "").strip()
+                            
+                            try:
+                                # 1. Standard parse
+                                import json
+                                result = json.loads(raw_response)
+                                return result
+                            except Exception as parse_err:
+                                # 2. Extract JSON from potential preamble
+                                import re
+                                match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+                                if match:
+                                    try:
+                                        return json.loads(match.group())
+                                    except: pass
+                                
+                                logger.error(f"Local AI Parse Error: {parse_err}. Raw: {raw_response[:100]}")
+                                return {
+                                    "priority": "low",
+                                    "reason": f"【AI解析エラー】パースに失敗しました。"
+                                }
+                        elif resp.status in [500, 503, 504]:
+                            if attempt >= 1 and self.model != self.fallback_model:
+                                logger.warning(f"Ollama consistently returning {resp.status} (Attempt {attempt+1}). Switching to fallback {self.fallback_model}...")
+                                orig_model = self.model
+                                self.model = self.fallback_model
+                                res = await self.screen_document(symbol, title, content_snippet, strategy)
+                                self.model = orig_model
+                                return res
+                            
+                            logger.warning(f"Ollama returned {resp.status}. Retrying in {retry_delay}s...")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2 # Exponential backoff
+                            continue
+                        elif resp.status == 404:
+                            if self.model != self.fallback_model:
+                                logger.warning(f"Model {self.model} not found. Retrying with fallback {self.fallback_model}...")
+                                orig_model = self.model
+                                self.model = self.fallback_model
+                                res = await self.screen_document(symbol, title, content_snippet)
+                                self.model = orig_model # Restore for next try
+                                return res
+                            return { "priority": "low", "reason": f"【モデル未取得】'{self.model}' がありません。" }
+                        else:
+                            return { "priority": "low", "reason": f"【Ollamaエラー】Status: {resp.status}" }
+                except Exception as e:
+                    logger.error(f"Local AI Exception for {symbol} (Attempt {attempt+1}): {type(e).__name__}: {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    
+                    error_msg = str(e) if str(e) else type(e).__name__
+                    return {
+                        "priority": "low", 
+                        "reason": f"【接続エラー】Ollama への接続に失敗しました ({error_msg})。"
+                    }
+        
+        return { "priority": "low", "reason": "【エラー】最大試行回数を超えました。" }
 
 async def main_test():
     agent = LocalAgent()

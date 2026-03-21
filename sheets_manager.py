@@ -10,7 +10,8 @@ class SheetsManager:
         try:
             spreadsheet = self.client.open(title)
             print(f"Opened existing spreadsheet: {title}")
-        except Exception:
+        except Exception as e:
+            print(f"Could not open spreadsheet '{title}': {e}. Attempting to create new one.")
             spreadsheet = self.client.create(title)
             print(f"Created new spreadsheet: {title}")
             

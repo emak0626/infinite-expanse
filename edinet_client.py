@@ -11,7 +11,7 @@ class EdinetClient:
     Client for Financial Services Agency's EDINET API (Public).
     Documentation: https://disclosure2.edinet-fsa.go.jp/EKW0EZ0001.html
     """
-    BASE_URL = "https://disclosure.edinet-fsa.go.jp/api/v1"
+    BASE_URL = "https://api.edinet-fsa.go.jp/api/v2"
 
     def __init__(self):
         self.api_key = settings.EDINET_API_KEY # Optional for some endpoints, but good to have
@@ -29,14 +29,20 @@ class EdinetClient:
             "type": 2 # 2 means metadata of documents
         }
         
-        async with aiohttp.ClientSession() as session:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        if self.api_key:
+            params["Subscription-Key"] = self.api_key
+        async with aiohttp.ClientSession(headers=headers) as session:
             try:
                 async with session.get(url, params=params) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return data.get("results", [])
                     else:
-                        logger.error(f"EDINET API failed with status {resp.status}")
+                        err_text = await resp.text()
+                        logger.error(f"EDINET API failed with status {resp.status}. Response: {err_text}")
                         return []
             except Exception as e:
                 logger.error(f"EDINET connection error: {e}")

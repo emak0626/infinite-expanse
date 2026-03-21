@@ -12,6 +12,13 @@
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .file-item-actions { display: flex; gap: 4px; }
+        .trash-btn:hover { color: #f85149 !important; background: rgba(248, 81, 73, 0.1); }
+        .delete-btn:hover { color: #da3633 !important; background: rgba(218, 54, 51, 0.2); }
+        .scanning-glow { box-shadow: 0 0 10px var(--accent-primary); border-color: var(--accent-primary) !important; animation: pulse-border 2s infinite; }
+        @keyframes pulse-border { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
+    </style>
 </head>
 
 <body>
@@ -20,16 +27,46 @@
             <div class="header-content">
                 <h1>INFINITE<span class="highlight">EXPANSE</span></h1>
                 <div class="status-dots" style="display: flex; gap: 4px; margin-top: 4px;">
-                    <div id="db-status" class="status-indicator online" title="DB"></div>
-                    <div id="api-status" class="status-indicator online" title="API"></div>
+                    <div id="db-status" class="status-indicator online" title="データベース"></div>
+                    <div id="api-status" class="status-indicator online" title="証券API"></div>
+                    <div id="local-ai-status" class="status-indicator offline" title="ローカルAI (Ollama)"></div>
                 </div>
             </div>
-            <div class="header-actions">
-                <button id="scan-edinet-btn" class="btn btn-outline btn-sm" onclick="triggerEdinetScan()" title="定期収集の他に今すぐ収集を開始します">🔍 AUTO INFO</button>
-                <button id="scan-market-btn" class="btn btn-primary btn-sm" onclick="triggerMarketScan()" title="全市場スキャン開始">📡 SCAN</button>
-                <button id="refresh-btn" class="icon-btn" onclick="fetchStocks()">
+            <div class="header-actions" style="display: flex; gap: 8px; align-items: center;">
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                    <button id="scan-edinet-btn" class="btn btn-outline btn-sm" onclick="triggerEdinetScan()">🔍 AUTO INFO</button>
+                    <span style="font-size: 0.55rem; opacity: 0.6;">無制限/ローカル解析</span>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                    <select id="scan-strategy" class="btn-sm" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.65rem; padding: 2px 4px; margin-bottom: 2px;">
+                        <option value="short">⚡ 短期(急騰)</option>
+                        <option value="long">🌱 長期(配当/割安)</option>
+                        <option value="undervalued">💎 超割安(PBR)</option>
+                    </select>
+                    <button id="scan-market-btn" class="btn btn-outline btn-sm" onclick="triggerTechnicalScan()">📡 SCAN</button>
+                    <span id="last-scan-time" style="font-size: 0.55rem; opacity: 0.6; font-family: 'JetBrains Mono';">Last: --:--</span>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                    <div style="display: flex; gap: 4px;">
+                        <button id="scan-cancel-btn" class="btn btn-outline btn-sm" onclick="cancelAIScreening()" style="display: none; border-color: var(--danger); color: var(--danger);">🛑 CANCEL</button>
+                        <button id="scan-ai-btn" class="btn btn-primary btn-sm" onclick="triggerAIScreening()">🤖 AI SCREEN</button>
+                    </div>
+                    <span id="last-ai-scan-time" style="font-size: 0.55rem; opacity: 0.6; font-family: 'JetBrains Mono';">AI: --:--</span>
+                </div>
+                <button id="refresh-btn" class="icon-btn" title="更新">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                 </button>
+                <button id="help-btn" class="icon-btn" onclick="openHelpModal()" title="機能解説 / API制限について" style="color: var(--text-secondary);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                </button>
+                <a href="/manual" class="icon-btn" title="操作マニュアル" style="color: var(--accent-primary); display: flex; align-items: center; justify-content: center; text-decoration: none;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                </a>
+                <div style="display: flex; gap: 8px; margin-left: 8px; border-left: 1px solid var(--border); padding-left: 12px;">
+                    <button id="notebooklm-btn" class="btn btn-primary btn-sm" onclick="exportNotebookLM()" title="NotebookLM用データ出力">📤 NB抽出</button>
+                    <button id="sync-drive-btn" class="btn btn-outline btn-sm" style="border-color:#4285f4; color:#4285f4;" onclick="syncNotebookLMToDrive()" title="NotebookLM統合レポートを作成し、Google Driveへ同期・共有します">☁️ NB同期</button>
+                    <button id="full-sync-btn" class="btn btn-outline btn-sm" style="border-color:var(--accent-primary); color:var(--accent-primary);" onclick="triggerFullSync(event)" title="ワークスペース全体（Market_Data, AI_Reports等）をGoogle Driveに同期します">📂 全同期</button>
+                </div>
             </div>
         </header>
 
@@ -44,12 +81,12 @@
             <!-- Strategy Tabs -->
             <div id="market-dashboard">
                 <!-- Heatmap -->
-                <div class="section-title">Market Pulse</div>
+                <div class="section-title">マーケット状況</div>
                 <div id="heatmap-scroll" class="heatmap-scroll">
                     <!-- Injected via JS -->
                 </div>
 
-                <div class="section-title">Strategy Filters</div>
+                <div class="section-title">分析フィルター</div>
             <div class="strategy-tabs">
                 <button class="tab-btn active" data-strategy="all">すべて</button>
                 <button class="tab-btn" data-strategy="value_invest">💎 バリュー</button>
@@ -62,7 +99,7 @@
             <!-- Scanner Options (Hidden by default) -->
             <div id="scanner-options" class="glass-card animate-in" style="display: none; margin: 12px 0; padding: 12px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                    <span class="detail-label" style="font-size: 0.8rem;">Ranking Type:</span>
+                    <span class="detail-label" style="font-size: 0.8rem;">ランキング種別:</span>
                     <select id="ranking-type" onchange="fetchScannerData()" style="flex: 1; background: #1c2128; color: white; border: 1px solid #30363d; padding: 6px; border-radius: 6px;">
                         <option value="1">値上がり率</option>
                         <option value="2">値下がり率</option>
@@ -73,13 +110,18 @@
             </div>
 
             <!-- Workspace Console (Local Hub) -->
-            <div id="workspace-console" class="glass-card animate-in" style="display: none; margin: 24px 0; padding: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <div class="section-title" style="margin: 0;">Intelligence Hub</div>
-                    <a href="/explorer" class="btn btn-outline btn-xs" style="font-size: 0.65rem; padding: 4px 8px;">📂 フルエクスプローラー</a>
+            <div id="workspace-console" class="glass-card animate-in" style="display: none; margin: 24px 0; padding: 0;">
+                <div class="workspace-header" onclick="toggleWorkspaceConsole()" style="display: flex; justify-content: space-between; align-items: center; padding: 16px; cursor: pointer; user-select: none;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="workspace-toggle-icon" style="transition: transform 0.3s; font-size: 0.7rem; color: var(--text-secondary);">▶</span>
+                        <div class="section-title" style="margin: 0;">分析レポート一覧 (Hub)</div>
+                    </div>
+                    <a href="/explorer" class="btn btn-outline btn-xs" style="font-size: 0.65rem; padding: 4px 8px;" onclick="event.stopPropagation()">📂 フルエクスプローラー</a>
                 </div>
-                <div id="workspace-links">
-                    <!-- Files will be dynamically listed here -->
+                <div id="workspace-content" style="display: none; padding: 0 16px 16px 16px; border-top: 1px solid var(--border);">
+                    <div id="workspace-links" style="margin-top: 12px;">
+                        <!-- Files will be dynamically listed here -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -88,7 +130,7 @@
             <!-- Loading State -->
             <div class="loading-state">
                 <div class="pulse-ring"></div>
-                <p>SYNCING MARKET MEMORY...</p>
+                <p>市場データを同期中...</p>
             </div>
         </main>
     </div>
@@ -98,11 +140,11 @@
         <div class="overlay-content">
             <header class="overlay-header">
                 <div style="display:flex; align-items:center; gap:15px;">
-                    <div id="overlay-title">INSIGHTS</div>
+                    <div id="overlay-title">詳細分析結果</div>
                     <select id="history-select" onchange="loadSpecificAnalysis(this.value)" style="background:#1c2128; color:white; border:1px solid #30363d; padding:4px 8px; border-radius:4px; font-size:0.8rem;"></select>
                 </div>
                 <div style="display:flex; gap:10px;">
-                    <button class="btn btn-outline btn-sm" onclick="showManualPasteUI()">Manual Input</button>
+                    <button class="btn btn-primary btn-sm" onclick="showManualPasteUI()">結果を保存</button>
                     <button class="icon-btn close-btn" onclick="closeAnalysis()">✕</button>
                 </div>
             </header>
@@ -122,7 +164,71 @@
     <!-- Hidden textarea for clipboard operations (positioned to avoid scroll jumps) -->
     <textarea id="clipboard-area" style="position: fixed; top: 0; left: -9999px; opacity: 0; pointer-events: none;"></textarea>
 
-    <script src="/static/script.js"></script>
+    <!-- Manual Prompt Copy Overlay -->
+    <div id="manual-copy-overlay" class="overlay" onclick="if(event.target===this) closeManualCopyModal()">
+        <div class="overlay-content" style="max-width: 600px; height: auto; margin: 20px;">
+            <div class="overlay-header">
+                <h2 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    📝 手動コピー
+                </h2>
+                <button class="icon-btn" onclick="closeManualCopyModal()" style="color:var(--text-muted)">✕</button>
+            </div>
+            <div style="padding: 20px;">
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
+                    以下の内容をすべて選択してコピーし、Geminiのチャット欄に貼り付けてください。
+                </p>
+                <textarea id="manual-copy-textarea" readonly style="width:100%; height:300px; background:#0d1117; color:white; border:1px solid #30363d; padding:12px; border-radius:6px; font-family:'JetBrains Mono', monospace; font-size:0.85rem; line-height:1.5; resize:none;" onclick="this.select()"></textarea>
+                <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button class="btn btn-outline" onclick="closeManualCopyModal()">閉じる</button>
+                    <button class="btn btn-primary" onclick="window.open('https://gemini.google.com/app', '_blank'); closeManualCopyModal();">コピーした(Geminiを開く)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal Overlay -->
+    <div id="help-overlay" class="overlay" onclick="if(event.target===this) closeHelpModal()">
+        <div class="overlay-content" style="max-width: 600px; height: auto; max-height: 80vh; margin: 20px;">
+            <div class="overlay-header">
+                <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                    機能と制限について
+                </h2>
+                <button class="icon-btn" onclick="closeHelpModal()" style="color:var(--text-muted)">✕</button>
+            </div>
+            <div style="padding: 20px; overflow-y: auto; line-height: 1.6; font-size: 0.9rem; color: var(--text-secondary);">
+                
+                <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
+                    <h3 style="color: white; margin-top: 0; font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 1.2rem;">🔍</span> AUTO INFO (EDINET解析)
+                    </h3>
+                    <p style="margin: 8px 0;"><strong>ローカルLLM</strong>を使用し、企業の適時開示情報（EDINET）をスキャンして重要なニュースを自動選別します。</p>
+                    <ul style="padding-left: 20px; list-style-type: square; margin-bottom: 0;">
+                        <li><span style="color: var(--success); font-weight: bold;">API制限なし:</span> PC内で完結するため無制限に利用可能。</li>
+                        <li><span style="color: var(--accent); font-weight: bold;">対象:</span> ウォッチリスト銘柄の最新開示をチェック。</li>
+                    </ul>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
+                    <h3 style="color: white; margin-top: 0; font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 1.2rem;">📡</span> SCAN (市場ハイブリッド)
+                    </h3>
+                    <p style="margin: 8px 0;">全市場を<strong>ローカルLLM</strong>で一次選別し、有望株を<strong>Gemini 2.0 Flash</strong>で高度に分析します。</p>
+                    <ul style="padding-left: 20px; list-style-type: square; margin-bottom: 0;">
+                        <li><span style="color: var(--danger); font-weight: bold;">API制限あり:</span> Geminiの無料枠を使用するため、連続実行に注意。</li>
+                        <li><span style="color: var(--accent); font-weight: bold;">結果:</span> 抽出された銘柄は「SCANNER」タブに表示されます。</li>
+                    </ul>
+                </div>
+
+                <div style="background: rgba(88, 166, 255, 0.1); padding: 16px; border-radius: 12px; border: 1px solid rgba(88, 166, 255, 0.3);">
+                    <h3 style="color: #58a6ff; margin-top: 0; font-size: 1rem;">📖 推奨ワークフロー</h3>
+                    <p style="margin: 8px 0; font-size: 0.85rem;">詳細はヘッダーの<strong>本のアイコン</strong>からマニュアルをご確認ください。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js?v=20260318_v3"></script>
 </body>
 
 </html>

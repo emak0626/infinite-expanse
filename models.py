@@ -36,6 +36,11 @@ class StockData(BaseModel):
     ai_thinking: Optional[str] = None # low, standard, high
     
     is_real_data: bool = True # Flag to indicate if data is from live API or DB fallback
+    is_watched: bool = False # Flag for UI to show heart icon
 
 class AnalysisRequest(BaseModel):
     symbol: str
+
+class ManualReportRequest(BaseModel):
+    content: str
+    score: float

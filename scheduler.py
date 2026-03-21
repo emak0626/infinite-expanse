@@ -30,7 +30,11 @@ docs_mgr = DocsManager()
 edinet_client = EdinetClient()
 local_agent = LocalAgent()
 
-scheduler = AsyncIOScheduler()
+# Initialize timezone
+from datetime import timezone, timedelta
+jst = timezone(timedelta(hours=9), name='JST')
+
+scheduler = AsyncIOScheduler(timezone=jst)
 
 async def fetch_stock_data_job():
     """
@@ -51,11 +55,13 @@ async def fetch_stock_data_job():
         for symbol in db_watchlist:
             try:
                 # 1. Fetch Data
+                stock_master = await repo.get_or_create_stock(symbol)
                 if settings.MOCK_MODE:
                     data = mock_client.get_board(symbol)
                     p_close = data.currentprice
                     row_data = {
                         "symbol": symbol,
+                        "name": stock_master.name,
                         "open": data.currentprice,
                         "high": data.high,
                         "low": data.low,
@@ -71,6 +77,7 @@ async def fetch_stock_data_job():
                     p_close = float(board.get("CurrentPrice", 0))
                     row_data = {
                         "symbol": symbol,
+                        "name": stock_master.name,
                         "open": float(board.get("OpeningPrice", 0)),
                         "high": float(board.get("HighPrice", 0)),
                         "low": float(board.get("LowPrice", 0)),
@@ -79,20 +86,31 @@ async def fetch_stock_data_job():
                         "rsi_14": 50.0 # Placeholder
                     }
                 
-                # 2. Save to DB
-                await repo.add_price(symbol, {k: v for k, v in row_data.items() if k != "symbol"})
+                # 2. Save to DB (exclude name as it's not in prices table)
+                await repo.add_price(symbol, {k: v for k, v in row_data.items() if k not in ("symbol", "name")})
                 fetched_data_list.append(row_data)
                 print(f"Saved {symbol}: {p_close}")
                 
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 
-        # 3. Save to Local Workspace (replacing Sheets)
+        # 3. Save to Local Workspace
         if fetched_data_list:
             df = pd.DataFrame(fetched_data_list)
+            # Translate columns for user-facing CSV
+            df_display = df.rename(columns={
+                "symbol": "銘柄コード",
+                "name": "銘柄名",
+                "open": "始値",
+                "high": "高値",
+                "low": "安値",
+                "close": "終値",
+                "volume": "出来高",
+                "rsi_14": "RSI(14)"
+            })
             try:
-                path = workspace_mgr.save_csv(df, "Master_Watchlist.csv")
-                print(f"Data synced to local workspace: {path}")
+                path = workspace_mgr.save_csv(df_display, "Master_Watchlist.csv")
+                print(f"Data synced to local workspace (Japanese CSV): {path}")
             except Exception as e:
                 print(f"Failed to save data to workspace: {e}")
 
@@ -208,6 +226,14 @@ async def run_daily_analysis():
             except Exception as e:
                 print(f"Error in deep-dive/reporting for {symbol}: {e}")
 
+async def run_overnight_scan():
+    """
+    Scheduled midnight job: Technical Scan + AI Screening.
+    """
+    from main import market_screener
+    print(f"[{datetime.now()}] Starting Overnight Full Hybrid Scan...")
+    await market_screener.run_market_scan()
+
 async def run_edinet_scan():
     """
     Daily job: Scan EDINET for relevant documents.
@@ -241,18 +267,37 @@ async def run_edinet_scan():
                 print(f"-> [SKIP] Local LLM deemed not urgent: {screening.get('reason')}")
                 await repo.add_stock_note(doc['symbol'], f"開示: {doc['title']} (AI判定: 低優先)")
 
+async def full_sync_job():
+    """
+    Daily job to sync the entire local workspace to Google Drive.
+    """
+    print(f"[{datetime.now()}] Starting Full Workspace Sync to Drive...")
+    try:
+        drive_mgr.full_workspace_sync()
+        print("Full workspace sync completed.")
+    except Exception as e:
+        print(f"Full workspace sync failed: {e}")
+
 def start_scheduler():
     # Fetch & Sync to Sheets: Every 10 minutes (for production realism)
-    trigger_fetch = CronTrigger(minute="*/10") 
+    trigger_fetch = CronTrigger(minute="*/10", timezone=jst) 
     scheduler.add_job(fetch_stock_data_job, trigger_fetch)
     
-    # AI Analysis Pipeline: Every day at 16:00
-    trigger_analyze = CronTrigger(hour=16, minute=10)
+    # AI Analysis Pipeline: Every day at 16:10 JST
+    trigger_analyze = CronTrigger(hour=16, minute=10, timezone=jst)
     scheduler.add_job(run_daily_analysis, trigger_analyze)
 
-    # EDINET Scan: Every day at 17:00
-    trigger_edinet = CronTrigger(hour=17, minute=0)
+    # EDINET Scan: Every day at 17:00 JST
+    trigger_edinet = CronTrigger(hour=17, minute=0, timezone=jst)
     scheduler.add_job(run_edinet_scan, trigger_edinet)
+    
+    # Overnight Full Scan: Every day at 02:00 JST
+    trigger_overnight = CronTrigger(hour=2, minute=0, timezone=jst)
+    scheduler.add_job(run_overnight_scan, trigger_overnight)
+    
+    # Full Workspace Sync: Every day at 18:00 JST
+    trigger_sync = CronTrigger(hour=18, minute=0, timezone=jst)
+    scheduler.add_job(full_sync_job, trigger_sync)
     
     scheduler.start()
     print("Scheduler Started with Google Workspace Sync and AI Pipeline.")

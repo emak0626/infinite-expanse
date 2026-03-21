@@ -12,6 +12,22 @@ class KabuApiClient:
         self.last_check: Dict[str, float] = {}
         self.cache: Dict[str, StockData] = {}
         self.host_header = f"localhost:{settings.KABU_API_PORT}"
+        self._load_stock_names()
+
+    def _load_stock_names(self):
+        self.stock_name_map = {}
+        try:
+            import os
+            import json
+            mapping_path = os.path.join(os.path.dirname(__file__), "stock_names.json")
+            if os.path.exists(mapping_path):
+                with open(mapping_path, "r", encoding="utf-8") as f:
+                    self.stock_name_map = json.load(f)
+                    # print(f"DEBUG: Loaded {len(self.stock_name_map)} stock names from {mapping_path}")
+            else:
+                print(f"WARNING: stock_names.json not found at {mapping_path}")
+        except Exception as e:
+            print(f"Error loading stock_names.json: {e}")
 
     def _get_token(self) -> str:
         """取得したトークンを返し、無効なら再取得する。"""
@@ -81,10 +97,14 @@ class KabuApiClient:
         """
         指定されたタイプのランキングを取得。
         1: 値上がり率, 2: 値下がり率, 3: 出来高, 4: 出来高急増
+        13: 低PER, 14: 低PBR, 15: 高配当利回り
         """
         if self.mock_mode:
-            # モック時はウォッチリストを返す
-            return [self._generate_mock_data(s) for s in settings.WATCHLIST]
+            self._current_type = type 
+            # モック時はウォッチリスト + 主要な他銘柄を混ぜて「全市場」をシミュレート
+            major_stocks = ["7203", "9984", "6758", "8035", "5401", "9101", "8306", "8316", "7267", "6501", "7201", "6701", "8058", "4063", "4568"]
+            scan_pool = list(set(settings.WATCHLIST + major_stocks))
+            return [self._generate_mock_data(s) for s in scan_pool]
 
         try:
             token = self._get_token()
@@ -112,9 +132,16 @@ class KabuApiClient:
         """APIのレスポンスをStockDataモデルに変換。"""
         if info is None: info = {}
         
+        symbol = data.get("Symbol", "")
+        symbol_name = data.get("SymbolName", "")
+        
+        # Fallback to local map if name is Unknown
+        if (not symbol_name or symbol_name == "Unknown") and symbol in self.stock_name_map:
+            symbol_name = self.stock_name_map[symbol]
+
         return StockData(
-            symbol=data.get("Symbol", ""),
-            symbolname=data.get("SymbolName", ""),
+            symbol=symbol,
+            symbolname=symbol_name,
             currentprice=data.get("CurrentPrice"),
             previousclose=data.get("PreviousClose"),
             change_percent=data.get("ChangePreviousClosePer"),
@@ -137,28 +164,8 @@ class KabuApiClient:
             is_real_data=True
         )
 
-    SYMBOL_NAME_MAP = {
-        "7203": "トヨタ自動車",
-        "9984": "ソフトバンクグループ",
-        "6758": "ソニーグループ",
-        "8035": "東京エレクトロン",
-        "5401": "日本製鉄",
-        "9101": "日本郵船",
-        "8306": "三菱UFJフィナンシャルG",
-        "8316": "三井住友フィナンシャルG",
-        "7267": "本田技研工業",
-        "6501": "日立製作所",
-        "6702": "富士通",
-        "7751": "キヤノン",
-        "4502": "武田薬品工業",
-        "4503": "アステラス製薬",
-        "6954": "ファナック",
-        "6098": "リクルートHD",
-        "6367": "ダイキン工業",
-        "6861": "キーエンス",
-        "7974": "任天堂",
-        "9432": "日本電信電話"
-    }
+    def _get_fallback_name(self, symbol: str) -> str:
+        return self.stock_name_map.get(symbol, f"銘柄 {symbol} (Mock)")
 
     def _generate_mock_data(self, symbol: str) -> StockData:
         """生成するモックデータを銘柄ごとにユニークにする。"""
@@ -174,8 +181,10 @@ class KabuApiClient:
         rsi = 30 + (seed % 40) + random.uniform(-5, 5) # 25-75の範囲でバラつかせる
         
         # 名前マップから取得、なければデフォルト名
-        symbol_name = self.SYMBOL_NAME_MAP.get(symbol, f"銘柄 {symbol} (Mock)")
+        symbol_name = self._get_fallback_name(symbol)
 
+        # Adjust mock data based on ranking type if needed
+        # (For simplicity, we just keep the randomized values, but we could bias them here)
         return StockData(
             symbol=symbol,
             symbolname=symbol_name,
@@ -187,9 +196,9 @@ class KabuApiClient:
             high=float(base_price * 1.02),
             low=float(base_price * 0.98),
             vwap=float(base_price * 0.99),
-            per=round(10 + random.random() * 20, 1),
-            pbr=round(0.5 + random.random() * 3, 2),
-            dividend_yield=round(random.random() * 5, 2),
+            per=round(2 + random.random() * 8, 1) if "13" in str(getattr(self, '_current_type', '')) else round(10 + random.random() * 20, 1),
+            pbr=round(0.3 + random.random() * 0.7, 2) if "14" in str(getattr(self, '_current_type', '')) else round(0.5 + random.random() * 3, 2),
+            dividend_yield=round(3 + random.random() * 5, 2) if "15" in str(getattr(self, '_current_type', '')) else round(random.random() * 5, 2),
             equity_ratio=round(20 + random.random() * 60, 1),
             rsi=round(rsi, 1),
             deviation_rate=round(random.uniform(-10, 10), 1),
