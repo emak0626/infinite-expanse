@@ -93,31 +93,46 @@ class KabuApiClient:
             print(f"API Call Failed for {symbol}: {e}")
             return self._generate_mock_data(symbol)
 
-    def get_ranking(self, type: str = "1") -> list[StockData]:
+    def get_ranking(self, type: str = "1", exchange: str = "ALL") -> list[StockData]:
         """
         指定されたタイプのランキングを取得。
         1: 値上がり率, 2: 値下がり率, 3: 出来高, 4: 出来高急増
         13: 低PER, 14: 低PBR, 15: 高配当利回り
+        exchange: ALL, ALLP (Prime), ALLS (Standard), ALLG (Growth)
         """
         if self.mock_mode:
             self._current_type = type 
-            # モック時はウォッチリスト + 主要な他銘柄を混ぜて「全市場」をシミュレート
-            major_stocks = ["7203", "9984", "6758", "8035", "5401", "9101", "8306", "8316", "7267", "6501", "7201", "6701", "8058", "4063", "4568"]
-            scan_pool = list(set(settings.WATCHLIST + major_stocks))
+            # モック時はウォッチリスト + 多様な銘柄を混ぜて「全市場」をシミュレート
+            # 主要(Prime)
+            prime_stocks = ["7203", "9984", "6758", "8035", "5401", "9101", "8306", "8316", "7267", "6501", "7201", "6701", "8058", "4063", "4568"]
+            # スタンダード(Standard)
+            standard_stocks = ["2702", "7532", "2782", "9873", "7606", "7564", "6312", "7114", "9270"]
+            # グロース(Growth)
+            growth_stocks = ["4478", "4485", "5253", "2158", "4593", "7794", "9166", "5214", "4165", "147A"]
+            
+            if exchange == "ALLG":
+                scan_pool = growth_stocks
+            elif exchange == "ALLS":
+                scan_pool = standard_stocks
+            elif exchange == "ALLP":
+                scan_pool = prime_stocks
+            else:
+                scan_pool = list(set(settings.WATCHLIST + prime_stocks + standard_stocks + growth_stocks))
+            
             return [self._generate_mock_data(s) for s in scan_pool]
 
         try:
             token = self._get_token()
-            url = f"{self.base_url}/ranking?type={type}"
+            market_suffix = f"&exchange={exchange}" if exchange != "ALL" else ""
+            url = f"{self.base_url}/ranking?type={type}{market_suffix}"
             headers = {"X-API-KEY": token, "Host": self.host_header}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             ranking_data = response.json().get("Ranking", [])
             
             results = []
-            for item in ranking_data[:30]: # 上位30銘柄
+            for item in ranking_data[:50]: # より広く取得（上位50銘柄）
                 symbol = item.get("Symbol")
-                # ランキングデータには詳細がないため、boardとsymbol_infoを補完（時間はかかるが確実）
                 try:
                     data = self.get_board(symbol)
                     results.append(data)

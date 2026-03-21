@@ -1,4 +1,4 @@
-# 🚀 Infinite Expanse - 投資支援システム
+# 🚀 Infinite Expanse Ver 1.0 - 投資支援システム
 
 AI（Google Gemini）とkabuステーション®APIを連携させた、株式市場の分析・銘柄スクリーニングシステムです。
 

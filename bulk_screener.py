@@ -79,21 +79,28 @@ class BulkScreener:
         start_time = datetime.now(jst)
         
         try:
-            # 1. Map strategy to ranking types
+            # 1. Map strategy to ranking types and exchanges
+            exchange = "ALL"
             if strategy == "long":
                 rank_types = ["13", "15"] # low PER, High Dividend
             elif strategy == "undervalued":
                 rank_types = ["14"] # low PBR
+            elif strategy == "growth":
+                rank_types = ["1"] # Price Up
+                exchange = "ALLG"
+            elif strategy == "standard":
+                rank_types = ["1"] # Price Up
+                exchange = "ALLS"
             else: # short (default)
                 rank_types = ["1", "4"] # Price Up, Volume Spike
             
             all_ranking_stocks = []
             for r_type in rank_types:
                 try:
-                    stocks = self.api_client.get_ranking(r_type)
+                    stocks = self.api_client.get_ranking(r_type, exchange=exchange)
                     all_ranking_stocks.extend(stocks)
                 except Exception as e:
-                    logger.error(f"Failed to fetch ranking type {r_type}: {e}")
+                    logger.error(f"Failed to fetch ranking type {r_type} for {exchange}: {e}")
             
             # De-duplicate
             unique_stocks = {s.symbol: s for s in all_ranking_stocks}.values()

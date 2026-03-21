@@ -25,7 +25,10 @@
     <div class="container animate-in">
         <header class="glass-header">
             <div class="header-content">
-                <h1>INFINITE<span class="highlight">EXPANSE</span></h1>
+                <h1 style="display: flex; align-items: baseline; gap: 8px;">
+                    INFINITE<span class="highlight">EXPANSE</span>
+                    <span style="font-size: 0.7rem; font-weight: 400; opacity: 0.5; font-family: 'JetBrains Mono';">Ver 1.0</span>
+                </h1>
                 <div class="status-dots" style="display: flex; gap: 4px; margin-top: 4px;">
                     <div id="db-status" class="status-indicator online" title="データベース"></div>
                     <div id="api-status" class="status-indicator online" title="証券API"></div>
@@ -35,11 +38,12 @@
             <div class="header-actions" style="display: flex; gap: 8px; align-items: center;">
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
                     <button id="scan-edinet-btn" class="btn btn-outline btn-sm" onclick="triggerEdinetScan()">🔍 AUTO INFO</button>
-                    <span style="font-size: 0.55rem; opacity: 0.6;">無制限/ローカル解析</span>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
                     <select id="scan-strategy" class="btn-sm" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.65rem; padding: 2px 4px; margin-bottom: 2px;">
                         <option value="short">⚡ 短期(急騰)</option>
+                        <option value="growth">📈 新興株(Growth)</option>
+                        <option value="standard">🏢 中堅株(Standard)</option>
                         <option value="long">🌱 長期(配当/割安)</option>
                         <option value="undervalued">💎 超割安(PBR)</option>
                     </select>
@@ -55,9 +59,6 @@
                 </div>
                 <button id="refresh-btn" class="icon-btn" title="更新">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                </button>
-                <button id="help-btn" class="icon-btn" onclick="openHelpModal()" title="機能解説 / API制限について" style="color: var(--text-secondary);">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                 </button>
                 <a href="/manual" class="icon-btn" title="操作マニュアル" style="color: var(--accent-primary); display: flex; align-items: center; justify-content: center; text-decoration: none;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
@@ -186,47 +187,6 @@
         </div>
     </div>
 
-    <!-- Help Modal Overlay -->
-    <div id="help-overlay" class="overlay" onclick="if(event.target===this) closeHelpModal()">
-        <div class="overlay-content" style="max-width: 600px; height: auto; max-height: 80vh; margin: 20px;">
-            <div class="overlay-header">
-                <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                    機能と制限について
-                </h2>
-                <button class="icon-btn" onclick="closeHelpModal()" style="color:var(--text-muted)">✕</button>
-            </div>
-            <div style="padding: 20px; overflow-y: auto; line-height: 1.6; font-size: 0.9rem; color: var(--text-secondary);">
-                
-                <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
-                    <h3 style="color: white; margin-top: 0; font-size: 1rem; display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 1.2rem;">🔍</span> AUTO INFO (EDINET解析)
-                    </h3>
-                    <p style="margin: 8px 0;"><strong>ローカルLLM</strong>を使用し、企業の適時開示情報（EDINET）をスキャンして重要なニュースを自動選別します。</p>
-                    <ul style="padding-left: 20px; list-style-type: square; margin-bottom: 0;">
-                        <li><span style="color: var(--success); font-weight: bold;">API制限なし:</span> PC内で完結するため無制限に利用可能。</li>
-                        <li><span style="color: var(--accent); font-weight: bold;">対象:</span> ウォッチリスト銘柄の最新開示をチェック。</li>
-                    </ul>
-                </div>
-
-                <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
-                    <h3 style="color: white; margin-top: 0; font-size: 1rem; display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 1.2rem;">📡</span> SCAN (市場ハイブリッド)
-                    </h3>
-                    <p style="margin: 8px 0;">全市場を<strong>ローカルLLM</strong>で一次選別し、有望株を<strong>Gemini 2.0 Flash</strong>で高度に分析します。</p>
-                    <ul style="padding-left: 20px; list-style-type: square; margin-bottom: 0;">
-                        <li><span style="color: var(--danger); font-weight: bold;">API制限あり:</span> Geminiの無料枠を使用するため、連続実行に注意。</li>
-                        <li><span style="color: var(--accent); font-weight: bold;">結果:</span> 抽出された銘柄は「SCANNER」タブに表示されます。</li>
-                    </ul>
-                </div>
-
-                <div style="background: rgba(88, 166, 255, 0.1); padding: 16px; border-radius: 12px; border: 1px solid rgba(88, 166, 255, 0.3);">
-                    <h3 style="color: #58a6ff; margin-top: 0; font-size: 1rem;">📖 推奨ワークフロー</h3>
-                    <p style="margin: 8px 0; font-size: 0.85rem;">詳細はヘッダーの<strong>本のアイコン</strong>からマニュアルをご確認ください。</p>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <script src="/static/script.js?v=20260318_v3"></script>
 </body>

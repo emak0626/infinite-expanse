@@ -1090,17 +1090,6 @@ async function triggerEdinetScan() {
     }
 }
 
-// Help Modal Controls
-function openHelpModal() {
-    const overlay = document.getElementById('help-overlay');
-    if (overlay) overlay.classList.add('active');
-}
-
-function closeHelpModal() {
-    const overlay = document.getElementById('help-overlay');
-    if (overlay) overlay.classList.remove('active');
-}
-
 // Manual Copy Modal Controls
 function showManualCopyModal(text) {
     const overlay = document.getElementById('manual-copy-overlay');
