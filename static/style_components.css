@@ -181,6 +181,8 @@ h1 {
     color: var(--text-secondary);
     border-left: 3px solid var(--accent);
     margin: 12px 0;
+    max-height: 150px;
+    overflow-y: auto;
 }
 
 /* Grid Details */
@@ -237,8 +239,15 @@ h1 {
     overflow: hidden;
 }
 
+.pane-left, .pane-right {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
 @media (max-width: 768px) {
     .split-pane { flex-direction: column; overflow-y: auto; }
+    .pane-left, .pane-right { overflow-y: visible; padding: 8px; }
 }
 
 /* Status dots */
@@ -252,6 +261,8 @@ h1 {
 .llm-notes-container {
     margin: 10px 0;
     font-size: 0.85rem;
+    max-height: 150px;
+    overflow-y: auto;
 }
 
 .llm-note-item {

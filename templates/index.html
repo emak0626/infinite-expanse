@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Infinite Expanse</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/style_components.css">
+    <link rel="stylesheet" href="/static/style.css?v=1.1">
+    <link rel="stylesheet" href="/static/style_components.css?v=1.1">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
         rel="stylesheet">
@@ -51,12 +51,17 @@
                     <span id="last-scan-time" style="font-size: 0.55rem; opacity: 0.6; font-family: 'JetBrains Mono';">Last: --:--</span>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
-                    <div style="display: flex; gap: 4px;">
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <select id="ai-scope" class="btn-sm" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.65rem; padding: 2px 4px;">
+                            <option value="scanner">📋 スキャン結果</option>
+                            <option value="watchlist">❤️ ウォッチリスト</option>
+                        </select>
                         <button id="scan-cancel-btn" class="btn btn-outline btn-sm" onclick="cancelAIScreening()" style="display: none; border-color: var(--danger); color: var(--danger);">🛑 CANCEL</button>
                         <button id="scan-ai-btn" class="btn btn-primary btn-sm" onclick="triggerAIScreening()">🤖 AI SCREEN</button>
                     </div>
                     <span id="last-ai-scan-time" style="font-size: 0.55rem; opacity: 0.6; font-family: 'JetBrains Mono';">AI: --:--</span>
                 </div>
+
                 <button id="refresh-btn" class="icon-btn" title="更新">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                 </button>
@@ -64,9 +69,10 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
                 </a>
                 <div style="display: flex; gap: 8px; margin-left: 8px; border-left: 1px solid var(--border); padding-left: 12px;">
-                    <button id="notebooklm-btn" class="btn btn-primary btn-sm" onclick="exportNotebookLM()" title="NotebookLM用データ出力">📤 NB抽出</button>
+                    <button id="bulk-local-ai-btn" class="btn btn-outline btn-sm" style="border-color:#8e44ad; color:#8e44ad;" onclick="triggerBulkLocalTrade()" title="ウォッチリスト全銘柄をローカルAIで一括分析します">🤖 一括分析</button>
+                    <button id="consolidated-prompt-btn" class="btn btn-primary btn-sm" onclick="getConsolidatedPrompt()" title="詳細分析と売買戦略を統合したGemini相談用プロンプトを生成します">📝 総合相談</button>
+                    <button id="notebooklm-btn" class="btn btn-outline btn-sm" onclick="exportNotebookLM()" title="NotebookLM用データ出力">📤 NB抽出</button>
                     <button id="sync-drive-btn" class="btn btn-outline btn-sm" style="border-color:#4285f4; color:#4285f4;" onclick="syncNotebookLMToDrive()" title="NotebookLM統合レポートを作成し、Google Driveへ同期・共有します">☁️ NB同期</button>
-                    <button id="full-sync-btn" class="btn btn-outline btn-sm" style="border-color:var(--accent-primary); color:var(--accent-primary);" onclick="triggerFullSync(event)" title="ワークスペース全体（Market_Data, AI_Reports等）をGoogle Driveに同期します">📂 全同期</button>
                 </div>
             </div>
         </header>
@@ -101,7 +107,8 @@
             <div id="scanner-options" class="glass-card animate-in" style="display: none; margin: 12px 0; padding: 12px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
                     <span class="detail-label" style="font-size: 0.8rem;">ランキング種別:</span>
-                    <select id="ranking-type" onchange="fetchScannerData()" style="flex: 1; background: #1c2128; color: white; border: 1px solid #30363d; padding: 6px; border-radius: 6px;">
+                    <select id="ranking-type" onchange="renderStocks()" style="flex: 1; background: #1c2128; color: white; border: 1px solid #30363d; padding: 6px; border-radius: 6px;">
+                        <option value="last_scan">📋 前回スキャン結果</option>
                         <option value="1">値上がり率</option>
                         <option value="2">値下がり率</option>
                         <option value="3">売買代金急増</option>
@@ -188,7 +195,7 @@
     </div>
 
 
-    <script src="/static/script.js?v=20260318_v3"></script>
+    <script src="/static/script.js?v=1.5" defer></script>
 </body>
 
 </html>

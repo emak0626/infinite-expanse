@@ -86,19 +86,24 @@ class BulkScreener:
             elif strategy == "undervalued":
                 rank_types = ["14"] # low PBR
             elif strategy == "growth":
-                rank_types = ["1"] # Price Up
-                exchange = "ALLG"
+                rank_types = ["1", "4"] # Price Up + Volume Spike
+                exchange = "G"
             elif strategy == "standard":
-                rank_types = ["1"] # Price Up
-                exchange = "ALLS"
+                rank_types = ["1", "4"] # Price Up + Volume Spike
+                exchange = "S"
             else: # short (default)
-                rank_types = ["1", "4"] # Price Up, Volume Spike
+                rank_types = ["1", "3", "4"] # Price Up, Value Spike, Volume Spike
             
             all_ranking_stocks = []
             for r_type in rank_types:
                 try:
+                    logger.info(f"Fetching ranking type {r_type} for exchange {exchange}...")
                     stocks = self.api_client.get_ranking(r_type, exchange=exchange)
-                    all_ranking_stocks.extend(stocks)
+                    if stocks:
+                        logger.info(f"Found {len(stocks)} stocks for ranking type {r_type}")
+                        all_ranking_stocks.extend(stocks)
+                    else:
+                        logger.warning(f"No stocks found for ranking type {r_type}")
                 except Exception as e:
                     logger.error(f"Failed to fetch ranking type {r_type} for {exchange}: {e}")
             
@@ -135,31 +140,59 @@ class BulkScreener:
         finally:
             self.is_running = False
 
-    async def run_ai_screening(self):
+    async def run_ai_screening(self, symbols: List[str] = None, scope: str = "scanner"):
         """
-        Runs Local LLM on the stocks listed in Market_Scan_Results.csv.
+        Runs Local LLM on specific symbols OR those listed in Market_Scan_Results.csv / Watchlist.
         """
         if self.is_running:
             return {"error": "AI screening already in progress."}
         
-        csv_path = workspace_mgr.get_path("market", "Market_Scan_Results.csv")
-        if not os.path.exists(csv_path):
-            return {"error": "Technical scan results not found. Run SCAN first."}
-            
-        self.is_running = True
-        logger.info("Starting Local AI Screening for CSV items...")
-        jst = timezone(timedelta(hours=9))
-        
         try:
-            df = pd.read_csv(csv_path)
+            target_stocks = []
+            
+            if symbols:
+                # 1. Manual source: provided symbols
+                logger.info(f"Targeting {len(symbols)} specifically requested symbols.")
+                for s in symbols:
+                    target_stocks.append({
+                        "銘柄コード": s,
+                        "銘柄名": "Unknown",
+                        "ソース": "Manual-Selection"
+                    })
+            elif scope == "watchlist":
+                # 2. Watchlist source
+                async with AsyncSessionLocal() as session:
+                    repo = StockRepository(session)
+                    watchlist_symbols = await repo.get_watchlist_symbols()
+                    logger.info(f"Targeting {len(watchlist_symbols)} symbols from watchlist.")
+                    for s in watchlist_symbols:
+                        target_stocks.append({
+                            "銘柄コード": s,
+                            "銘柄名": "Unknown",
+                            "ソース": "Watchlist"
+                        })
+            else:
+                # 3. Scanner results source (default)
+                csv_path = workspace_mgr.get_path("market", "Market_Scan_Results.csv")
+                if os.path.exists(csv_path):
+                    df = pd.read_csv(csv_path)
+                    logger.info(f"Loaded {len(df)} stocks from CSV (Scanner Results).")
+                    # Expanded to 100 for more comprehensive screening if requested
+                    for _, row in df.head(100).iterrows():
+                        target_stocks.append(row.to_dict())
+                else:
+                    return {"error": "Technical scan results not found. Run SCAN first."}
+
+            
+            self.is_running = True
+            logger.info(f"Starting Local AI Screening for {len(target_stocks)} items...")
+            jst = timezone(timedelta(hours=9))
+            
             updated_results = []
             total_processed = 0
             
-            # Limited to first 50 results to avoid UI/Timeout issues for manual trigger
-            target_df = df.head(50) 
-            
             self.cancel_requested = False
-            for index, row in target_df.iterrows():
+            for row in target_stocks:
                 if self.cancel_requested:
                     logger.info("AI Screening cancelled by user.")
                     break
@@ -177,7 +210,7 @@ class BulkScreener:
                 analysis = {
                     "score": 5.0 if screening.get("priority") == "medium" else (7.0 if screening.get("priority") == "high" else 3.0),
                     "summary": screening.get("reason"),
-                    "reasoning": f"Local LLM Screening Result: {screening.get('reason')}\nContext: {context}",
+                    "reasoning": screening.get("reason"), # Use reason as reasoning too for local agent
                     "source": "Local LLM (Scan)"
                 }
                 

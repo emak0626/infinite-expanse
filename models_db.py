@@ -59,6 +59,7 @@ class AnalysisReport(Base):
     # New Phase 1 fields
     persona_views: Mapped[Optional[str]] = mapped_column(Text) # JSON string of persona perspectives
     catalysts: Mapped[Optional[str]] = mapped_column(Text)    # JSON string of lists
+    trade_strategy: Mapped[Optional[str]] = mapped_column(Text) # Local AI generated trade strategy
     
     stock: Mapped["StockMaster"] = relationship(back_populates="reports")
 

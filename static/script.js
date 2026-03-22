@@ -230,6 +230,7 @@ let currentStocks = [];
 let watchlistData = [];
 let scannerData = [];
 let activeStrategy = 'all';
+let lastScanIsRunning = false; // Track scan state for auto-refresh
 
 async function fetchStocks(refresh = false) {
     const list = document.getElementById('stock-list');
@@ -269,6 +270,9 @@ window.fetchData = fetchStocks;
 window.fetchWorkspaceLinks = fetchWorkspaceLinks;
 window.updateHealthStatus = updateHealthStatus;
 window.updateScanStatus = updateScanStatus;
+window.viewLocalTradeAnalysis = viewLocalTradeAnalysis;
+window.triggerBulkLocalTrade = triggerBulkLocalTrade;
+window.getConsolidatedPrompt = getConsolidatedPrompt;
 
 function setupTabs() {
     const tabs = document.querySelectorAll('.tab-btn');
@@ -289,7 +293,10 @@ function setupTabs() {
             const scannerOptions = document.getElementById('scanner-options');
             if (activeStrategy === 'scanner') {
                 if (scannerOptions) scannerOptions.style.display = 'block';
-                if (scannerData.length === 0) {
+                // Always fetch/sync scanner data when entering scanner tab if it's currently empty
+                // OR if the select is on 'last_scan'
+                const rankSelect = document.getElementById('ranking-type');
+                if (rankSelect && (scannerData.length === 0 || rankSelect.value === 'last_scan')) {
                     fetchScannerData();
                 } else {
                     currentStocks = scannerData;
@@ -303,20 +310,36 @@ function setupTabs() {
             }
         });
     });
+
+    // 🏆 New: Listen for ranking type changes to sync currentStocks
+    const rankSelect = document.getElementById('ranking-type');
+    if (rankSelect) {
+        rankSelect.addEventListener('change', () => {
+            if (activeStrategy === 'scanner') {
+                if (rankSelect.value === 'last_scan') {
+                    fetchScannerData();
+                } else {
+                    // Local sorting handles the display, but we ensure we are using scannerData
+                    currentStocks = scannerData;
+                    renderStocks();
+                }
+            }
+        });
+    }
 }
 
 async function fetchScannerData() {
-    const rankSelect = document.getElementById('ranking-type');
-    const type = rankSelect ? rankSelect.value : '1';
     const indicator = document.querySelector('.status-indicator');
     const list = document.getElementById('stock-list');
 
     try {
         if (indicator) indicator.classList.add('loading');
-        if (list) list.innerHTML = '<div class="loading-state"><div class="pulse-ring"></div><p>市場をスキャン中...</p></div>';
+        if (list) list.innerHTML = '<div class="loading-state"><div class="pulse-ring"></div><p>スキャン結果を読み込み中...</p></div>';
         
-        const response = await fetch(`/api/market_scanner?type=${type}`);
+        const timestamp = Date.now();
+        const response = await fetch(`/api/market_scanner?type=last_scan&exchange=ALL&_t=${timestamp}`);
         scannerData = await response.json();
+
         currentStocks = scannerData;
         renderStocks();
     } catch (error) {
@@ -372,14 +395,41 @@ function renderHeatmap(stocks) {
 
 function renderStocks() {
     const list = document.getElementById('stock-list');
-    list.innerHTML = '';
+    if (!list) return;
 
-    const filtered = (activeStrategy === 'all' || activeStrategy === 'scanner') ?
-        currentStocks :
-        currentStocks.filter(s => s.matched_strategies && s.matched_strategies.includes(activeStrategy));
+    list.innerHTML = '';
+    
+    // 🚦 Determine the source of data based on the tab
+    let sourceData = (activeStrategy === 'scanner') ? scannerData : watchlistData;
+    
+    // If we're on a strategy tab (momentum, etc), filter from watchlist
+    let filtered = (activeStrategy === 'all' || activeStrategy === 'scanner') ?
+        sourceData :
+        sourceData.filter(s => s.matched_strategies && s.matched_strategies.includes(activeStrategy));
+
+    // ローカルソート（スキャナータブの際のみ）
+    if (activeStrategy === 'scanner') {
+        const rankSelect = document.getElementById('ranking-type');
+        const rType = rankSelect ? rankSelect.value : 'last_scan';
+        
+        filtered.sort((a, b) => {
+            if (rType === '1') {
+                return (b.change_percent || 0) - (a.change_percent || 0); // 値上がり率 (高い順)
+            } else if (rType === '2') {
+                return (a.change_percent || 0) - (b.change_percent || 0); // 値下がり率 (低い順)
+            } else if (rType === '3') {
+                return (b.ai_score || 0) - (a.ai_score || 0); // 代金急増等(DB未保持のためAIスコア代用)
+            } else if (rType === '4') {
+                return (b.volume || 0) - (a.volume || 0); // 出来高急増 (多い順)
+            } else {
+                return (b.ai_score || 0) - (a.ai_score || 0); // 前回スキャン (AIスコア降順)
+            }
+        });
+    }
 
     if (filtered.length === 0) {
-        list.innerHTML = `<p style="text-align:center; padding:40px; color:var(--text-secondary); opacity:0.6;">対象銘柄が見つかりません</p>`;
+        let msg = (activeStrategy === 'scanner') ? 'スキャン結果はまだありません。' : '条件に合致する銘柄はありません。';
+        list.innerHTML = `<div class="loading-state"><p style="opacity: 0.5;">${msg}</p></div>`;
         return;
     }
 
@@ -453,9 +503,9 @@ function renderStocks() {
             ${aiReasoning}
 
             <div class="card-actions" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:16px;">
-                <button class="btn btn-primary" style="flex:1; min-width:120px; height:40px; font-size:0.75rem;" onclick="copyPrompt('${stock.symbol}', event)">PROMPTコピー</button>
-                <button class="btn btn-outline" style="flex:1; min-width:120px; height:40px; font-size:0.75rem;" onclick="viewReport('${stock.symbol}')">AI詳細分析</button>
-                <button class="btn btn-outline" style="flex:1; min-width:120px; height:40px; font-size:0.75rem; border-color:rgba(0,255,255,0.3);" onclick="viewTradeAnalysis('${stock.symbol}')">🎯 売買戦略</button>
+                <button class="btn btn-primary" style="flex:1; min-width:140px; height:40px; font-size:0.75rem;" onclick="copyPrompt('${stock.symbol}', event)">PROMPTコピー</button>
+                <button class="btn btn-outline" style="flex:1; min-width:140px; height:40px; font-size:0.75rem;" onclick="viewReport('${stock.symbol}')">AI詳細分析</button>
+                <button class="btn btn-outline" style="flex:1; min-width:140px; height:40px; font-size:0.75rem; border-color:rgba(0,255,255,0.3);" onclick="viewTradeAnalysis('${stock.symbol}')">🎯 Gemini戦略</button>
             </div>
         `;
         list.appendChild(card);
@@ -757,6 +807,18 @@ function renderReport(data) {
         ` : ''}
 
         <div class="ai-reasoning" style="margin-top:20px;">${marked.parse(textToRender)}</div>
+
+        ${data.trade_strategy ? `
+            <div style="margin-top:25px; padding:15px; background:rgba(142, 68, 173, 0.1); border-radius:8px; border:2px solid rgba(142, 68, 173, 0.3);">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span style="font-size:1.2rem;">🤖</span>
+                    <h3 style="margin:0; font-size:1.1rem; color:#a29bfe;">ローカルAI売買戦略</h3>
+                </div>
+                <div class="markdown-body" style="font-size:0.9rem;">
+                    ${marked.parse(data.trade_strategy)}
+                </div>
+            </div>
+        ` : ''}
     `;
 
     if (data.catalysts && Array.isArray(data.catalysts)) {
@@ -958,6 +1020,18 @@ async function updateScanStatus() {
             if (cancelBtn) cancelBtn.style.display = 'none';
         }
 
+        // Auto-refresh scanner if a scan just finished and we are on the scanner tab
+        if (lastScanIsRunning && !data.is_running) {
+            console.log("[Scanner] Scan finished. Refreshing data...");
+            if (activeStrategy === 'scanner') {
+                const rankSelect = document.getElementById('ranking-type');
+                if (rankSelect && rankSelect.value === 'last_scan') {
+                    fetchScannerData();
+                }
+            }
+        }
+        lastScanIsRunning = data.is_running;
+
         if (data.last_scan_at && timeLabel) {
             const date = new Date(data.last_scan_at);
             timeLabel.innerText = `Last: ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -999,7 +1073,14 @@ async function triggerAIScreening() {
         btn.disabled = true;
         if (cancelBtn) cancelBtn.style.display = 'inline-block';
         
-        await fetch('/api/admin/scan-ai', { method: 'POST' });
+        const scope = document.getElementById('ai-scope')?.value || 'scanner';
+        
+        await fetch('/api/admin/scan-ai', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: scope })
+        });
+
         setTimeout(updateScanStatus, 1000);
     } catch (error) {
         console.error('AI screening failed:', error);
@@ -1037,6 +1118,80 @@ async function viewTradeAnalysis(symbol) {
     } catch (e) {
         console.error(e);
         alert(`エラー: ${e.message}`);
+    }
+}
+
+async function viewLocalTradeAnalysis(symbol) {
+    const overlay = document.getElementById('analysis-overlay');
+    const title = document.getElementById('overlay-title');
+    const reportDiv = document.getElementById('report-content');
+    const chartContainer = document.querySelector("#chart-container");
+
+    try {
+        // UI Loading State
+        overlay.classList.add('active');
+        title.innerText = `ローカルAI売買戦略: ${symbol}`;
+        reportDiv.innerHTML = '<div class="loading-state"><div class="pulse-ring"></div><p>ローカルAIが戦略を練っています...</p></div>';
+        if (chartContainer) chartContainer.innerHTML = ''; // Clear chart for this view if needed
+
+        const response = await fetch(`/api/analysis/local_trade/${symbol}`);
+        if (!response.ok) {
+             const err = await response.json();
+             throw new Error(err.detail || "Failed to fetch local trade analysis");
+        }
+        const data = await response.json();
+        
+        // Render Result
+        reportDiv.innerHTML = `
+            <div class="ai-summary" style="border-left-color: #8e44ad;">
+                <span class="badge" style="background:#8e44ad; color:white">LOCAL AI ANALYSIS</span>
+                <p style="font-size: 0.8rem; opacity: 0.7; margin-top: 5px;">Source: ${data.source}</p>
+            </div>
+            <div class="ai-reasoning" style="margin-top:20px;">
+                ${marked.parse(data.analysis)}
+            </div>
+        `;
+    } catch (e) {
+        console.error(e);
+        reportDiv.innerHTML = `<p style="color:var(--danger); padding:20px;">エラーが発生しました: ${e.message}<br><br>ローカルAI (Ollama) が起動しているか確認してください。</p>`;
+    }
+}
+
+async function triggerBulkLocalTrade() {
+    if (!confirm("ウォッチリスト全銘柄に対してローカルAI売買分析を開始しますか？\n(バックグラウンドで実行されます)")) return;
+    try {
+        const response = await fetch('/api/admin/bulk-local-trade', { method: 'POST' });
+        const data = await response.json();
+        alert(data.message);
+    } catch (e) {
+        console.error(e);
+        alert("エラーが発生しました。");
+    }
+}
+
+async function getConsolidatedPrompt() {
+    const btn = document.getElementById('consolidated-prompt-btn');
+    const originalText = btn ? btn.innerHTML : '📝 総合Gemini相談';
+    
+    try {
+        if (btn) {
+            btn.innerHTML = '⏳ 生成中...';
+            btn.disabled = true;
+        }
+        
+        const response = await fetch('/api/consolidated_prompt');
+        if (!response.ok) throw new Error("Failed to generate consolidated prompt");
+        
+        const data = await response.json();
+        showManualCopyModal(data.prompt);
+    } catch (e) {
+        console.error(e);
+        alert(`エラー: ${e.message}`);
+    } finally {
+        if (btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     }
 }
 

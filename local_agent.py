@@ -31,6 +31,35 @@ class LocalAgent:
             
         logger.info(f"LocalAgent initialized. Base URL: {self.BASE_URL}, Primary Model: {self.model}")
 
+    async def generate_response(self, prompt: str, format: str = "") -> str:
+        """
+        Generic method to generate a response from Ollama.
+        """
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": "24h"
+        }
+        if format:
+            payload["format"] = format
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            timeout = aiohttp.ClientTimeout(total=120)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                try:
+                    async with session.post(f"{self.BASE_URL}/generate", json=payload) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return data.get("response", "").strip()
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    logger.error(f"Ollama Error (Attempt {attempt+1}): {e}")
+                    await asyncio.sleep(2)
+        
+        return "【エラー】ローカルAIからの応答取得に失敗しました。"
+
     async def screen_document(self, symbol: str, title: str, content_snippet: str = "", strategy: str = "short") -> dict:
         """
         Calls local Ollama to analyze data based on investment strategy.
@@ -45,7 +74,7 @@ class LocalAgent:
         }
         instr = strategy_instructions.get(strategy, strategy_instructions["short"])
 
-        prompt = f"""あなたはプロの証券アナリストです。以下の銘柄データを分析し、投資の優先順位（有望度）を判定してください。
+        prompt = f"""あなたはプロの証券アナリストです。以下の銘柄データを多角的に分析し、投資の優先順位（有望度）を判定してください。
 
 投資戦略: {strategy}
 重視ポイント: {instr}
@@ -54,14 +83,17 @@ class LocalAgent:
 データ詳細: {content_snippet}
 
 判定基準：
-- high: 戦略に合致し、強い買い材料がある
-- medium: 合致するが決定打に欠ける、または懸案事項がある
-- low: 合致しない、またはリスクが高い
+- high: 戦略に強く合致し、テクニカル・ファンダメンタルズ両面で強い買い材料がある
+- medium: 合致するが決定打に欠ける、または一時的な過熱感などの懸案事項がある
+- low: 戦略に合致しない、またはリスク・不透明感が非常に高い
 
 出力形式（JSONのみ、自然な日本語で回答してください）:
-{{"priority": "low"|"medium"|"high", "reason": "分析理由を30文字程度の自然な日本語で。"}}
+{{
+  "priority": "low"|"medium"|"high", 
+  "reason": "【詳細分析】分析結果を200〜300文字程度の具体的な日本語で記述してください。根拠となる数値や注目すべき材料、リスク要因を具体的に含めてください。"
+}}
 
-余計な説明は省き、純粋なJSONのみを出力してください。日本語の文字化けに注意してください。"""
+余計な装飾や説明は省き、純粋なJSONのみを出力してください。分析結果が途中で切れないよう、簡潔かつ中身の濃い記述を心がけてください。"""
 
         payload = {
             "model": self.model,

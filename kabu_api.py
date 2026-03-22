@@ -104,17 +104,29 @@ class KabuApiClient:
             self._current_type = type 
             # モック時はウォッチリスト + 多様な銘柄を混ぜて「全市場」をシミュレート
             # 主要(Prime)
-            prime_stocks = ["7203", "9984", "6758", "8035", "5401", "9101", "8306", "8316", "7267", "6501", "7201", "6701", "8058", "4063", "4568"]
-            # スタンダード(Standard)
-            standard_stocks = ["2702", "7532", "2782", "9873", "7606", "7564", "6312", "7114", "9270"]
-            # グロース(Growth)
-            growth_stocks = ["4478", "4485", "5253", "2158", "4593", "7794", "9166", "5214", "4165", "147A"]
+            prime_stocks = ["7203", "9984", "6758", "8035", "5401", "9101", "8306", "8316", "7267", "6501", "7201", "6701", "8058", "4063", "4568", "9432"]
+            # スタンダード(Standard) - 約50銘柄に拡張
+            standard_stocks = [
+                "2702", "7532", "2782", "9873", "7606", "7564", "6312", "7114", "9270", "2338",
+                "3333", "4563", "6789", "8900", "9000", "1234", "5678", "9012", "3456", "7890",
+                "1111", "2222", "3334", "4444", "5555", "6666", "7777", "8888", "9999", "1010",
+                "2020", "3030", "4040", "5050", "6060", "7070", "8080", "9090", "1001", "2002",
+                "3003", "4004", "5005", "6111", "6222", "6333", "6444", "6555", "6661", "6777"
+            ]
+            # グロース(Growth) - 約50銘柄に拡張
+            growth_stocks = [
+                "4478", "4485", "5253", "2158", "4593", "7794", "9166", "5214", "4165", "147A",
+                "151A", "152A", "153A", "154A", "155A", "156A", "157A", "158A", "159A", "160A",
+                "2100", "2200", "2300", "2400", "2500", "2600", "2700", "2800", "2900", "3100",
+                "3200", "3300", "3400", "3500", "3600", "3700", "3800", "3900", "4100", "4200",
+                "4300", "4401", "4402", "4403", "4404", "4405", "4406", "4407", "4408", "4409"
+            ]
             
-            if exchange == "ALLG":
+            if exchange == "G":
                 scan_pool = growth_stocks
-            elif exchange == "ALLS":
+            elif exchange == "S":
                 scan_pool = standard_stocks
-            elif exchange == "ALLP":
+            elif exchange == "P":
                 scan_pool = prime_stocks
             else:
                 scan_pool = list(set(settings.WATCHLIST + prime_stocks + standard_stocks + growth_stocks))
@@ -150,9 +162,12 @@ class KabuApiClient:
         symbol = data.get("Symbol", "")
         symbol_name = data.get("SymbolName", "")
         
-        # Fallback to local map if name is Unknown
-        if (not symbol_name or symbol_name == "Unknown") and symbol in self.stock_name_map:
-            symbol_name = self.stock_name_map[symbol]
+        # Fallback to local map if name is Unknown or empty or just numeric code
+        if not symbol_name or symbol_name == "Unknown" or str(symbol_name).isdigit():
+            if symbol in self.stock_name_map:
+                symbol_name = self.stock_name_map[symbol]
+            else:
+                symbol_name = f"銘柄 {symbol}"
 
         return StockData(
             symbol=symbol,
@@ -170,7 +185,7 @@ class KabuApiClient:
             pbr=info.get("PBR"),
             dividend_yield=info.get("DividendYield"),
             equity_ratio=info.get("EquityRatio"),
-            rsi=50.0, # board/symbolにはないため別途計算が必要だが一旦デフォルト
+            rsi=None, # board/symbolにはないため別途取得が必要
             deviation_rate=0.0,
             credit_ratio=info.get("MarginBuyRatio"),
             short_selling_cost=False,
@@ -180,7 +195,7 @@ class KabuApiClient:
         )
 
     def _get_fallback_name(self, symbol: str) -> str:
-        return self.stock_name_map.get(symbol, f"銘柄 {symbol} (Mock)")
+        return self.stock_name_map.get(symbol, f"銘柄 {symbol}")
 
     def _generate_mock_data(self, symbol: str) -> StockData:
         """生成するモックデータを銘柄ごとにユニークにする。"""

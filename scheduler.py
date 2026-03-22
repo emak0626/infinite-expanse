@@ -233,6 +233,53 @@ async def run_overnight_scan():
     from main import market_screener
     print(f"[{datetime.now()}] Starting Overnight Full Hybrid Scan...")
     await market_screener.run_market_scan()
+    
+    # 🔍 New: After scan, pre-generate the consolidated prompt for the user
+    print(f"[{datetime.now()}] Pre-generating consolidated prompt for tomorrow...")
+    await generate_daily_consolidated_prompt()
+
+async def generate_daily_consolidated_prompt():
+    """
+    Background job to pre-calculate the massive 'Comprehensive Consultation' prompt.
+    Saved to workspace/System_Config/Consolidated_Prompt.txt
+    """
+    from main import get_stock_data_with_fallback
+    import prompts
+    
+    async with AsyncSessionLocal() as session:
+        repo = StockRepository(session)
+        symbols = await repo.get_watchlist_symbols()
+        if not symbols:
+            symbols = settings.WATCHLIST
+            
+        stocks_data = []
+        for symbol in symbols:
+            try:
+                stock_data = await get_stock_data_with_fallback(symbol, repo)
+                report = await repo.get_latest_analysis(symbol)
+                
+                from sqlalchemy import select, desc
+                from models_db import StockNote
+                stmt = select(StockNote).where(StockNote.symbol == symbol).order_by(desc(StockNote.created_at)).limit(5)
+                res = await session.execute(stmt)
+                notes = res.scalars().all()
+                
+                stocks_data.append({
+                    "stock": stock_data,
+                    "report": report,
+                    "notes": notes
+                })
+            except Exception as e:
+                print(f"Error gathering data for prompt ({symbol}): {e}")
+                
+        if stocks_data:
+            prompt = prompts.generate_consolidated_gemini_prompt(stocks_data)
+            
+            # Save to local workspace
+            save_path = workspace_mgr.get_path("config", "Consolidated_Prompt.txt")
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(prompt)
+            print(f"Consolidated prompt cached at: {save_path}")
 
 async def run_edinet_scan():
     """
@@ -248,8 +295,13 @@ async def run_edinet_scan():
         
         for doc in relevant:
             print(f"New Document Found: {doc['symbol']} - {doc['title']}")
-            # Phase 1.5: Local LLM Screening
-            screening = await local_agent.screen_document(doc['symbol'], doc['title'])
+            
+            # Phase 1.4: Fetch actual document text for deeper content analysis
+            doc_text = await edinet_client.get_document_text(doc['docID'])
+            snippet = (doc['title'] + "\n" + doc_text)[:4000] # Combine title and text
+            
+            # Phase 1.5: Local LLM Screening with full context
+            screening = await local_agent.screen_document(doc['symbol'], doc['title'], content_snippet=snippet)
             
             if screening.get("is_important"):
                 print(f"-> [IMPORTANT] Local LLM tagged for deep analysis: {screening.get('reason')}")

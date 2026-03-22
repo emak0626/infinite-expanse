@@ -66,7 +66,7 @@ class GeminiAgent:
         Output format: JSON
         Schema:
         {{
-            "summary": "Key takeaways (1 sentence in Japanese)",
+            "summary": "Key takeaways and analytical conclusion (3-5 sentences in Japanese)",
             "score": float (0-10, 10 is strong buy),
             "sentiment": "Bullish | Neutral | Bearish",
             "reasoning": "Markdown explanation integrating multi-persona discussion (in Japanese)",

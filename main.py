@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
-from typing import List
+from typing import List, Optional
 import logging
 
 # Setup Logging
@@ -21,12 +21,26 @@ from models_db import AnalysisReport, StockNote
 import os
 import time
 import asyncio
-import asyncio
 from pydantic import BaseModel
 from datetime import datetime, time as dt_time, timedelta, timezone
 jst = timezone(timedelta(hours=9))
 import json
 from functools import wraps
+import pandas as pd
+
+def _safe_float(val, default=0.0):
+    if val is None or val == "" or str(val).lower() == "nan": return default
+    try:
+        if isinstance(val, str): val = val.replace(',', '').replace('%', '')
+        return float(val)
+    except: return default
+
+def _safe_int(val, default=0):
+    if val is None or val == "" or str(val).lower() == "nan": return default
+    try:
+        if isinstance(val, str): val = val.replace(',', '')
+        return int(float(val))
+    except: return default
 
 def retry_db_async(max_retries=3, delay=1):
     def decorator(func):
@@ -180,6 +194,44 @@ async def get_stock_data_with_fallback(symbol: str, repo: StockRepository) -> St
             data.high = p.high
             data.low = p.low
             data.rsi = p.rsi_14
+    
+    # Ensure RSI is present from DB if API didn't provide it
+    if data.rsi is None:
+        try:
+            latest_prices = await repo.get_latest_prices(symbol, limit=1)
+            if latest_prices:
+                data.rsi = latest_prices[0].rsi_14
+        except:
+            pass
+
+    # 3. Ensure fundamental data (PER/PBR/Yield) is present for screening
+    # Use cached or fresh symbol info if missing
+    if data.per is None or data.pbr is None or data.dividend_yield is None:
+        try:
+            info = api_client.get_symbol_info(symbol)
+            if info:
+                data.per = data.per or info.get("PER")
+                data.pbr = data.pbr or info.get("PBR")
+                data.dividend_yield = data.dividend_yield or info.get("DividendYield")
+                data.equity_ratio = data.equity_ratio or info.get("EquityRatio")
+                data.credit_ratio = data.credit_ratio or info.get("MarginBuyRatio")
+        except:
+            pass
+            
+    # 4. Fallback to Scan Results CSV if still missing (Last resort for fundamentals)
+    if data.per is None or data.pbr is None:
+        try:
+            csv_path = os.path.join("workspace", "Market_Data", "Market_Scan_Results.csv")
+            if os.path.exists(csv_path):
+                df_scan = pd.read_csv(csv_path)
+                # Filter by string or int symbol
+                match = df_scan[df_scan["銘柄コード"].astype(str) == str(symbol)]
+                if not match.empty:
+                    data.per = data.per or _safe_float(match.iloc[0].get("PER"))
+                    data.pbr = data.pbr or _safe_float(match.iloc[0].get("PBR"))
+                    data.dividend_yield = data.dividend_yield or _safe_float(match.iloc[0].get("利回り"))
+        except:
+            pass
 
     # Timezone aware logic for market status
     now = datetime.now(jst)
@@ -346,6 +398,11 @@ async def get_bulk_prompt(source: str = "watchlist", type: str = "1", username: 
 
 class ExportRequest(BaseModel):
     symbols: list[str] = None
+
+class ScanAIRequest(BaseModel):
+    symbols: Optional[list[str]] = None
+    scope: Optional[str] = "scanner" # "scanner" or "watchlist"
+
 
 @app.post("/api/export/notebooklm")
 @app.get("/api/export/notebooklm")
@@ -830,15 +887,102 @@ async def get_workspace_links(username: str = Depends(authenticate)):
         "reports": reports_link
     }
 
+import math
+
+
 @app.get("/api/market_scanner")
-async def get_scanner_results(type: str = "ranking", username: str = Depends(authenticate)):
+async def get_scanner_results(type: str = "ranking", exchange: str = "ALL", username: str = Depends(authenticate)):
     """
-    Returns stocks that have been recently analyzed or have high AI scores.
-    This serves the 'Scanner' tab in the UI.
+    Returns stocks based on ranking type or top AI scores.
+    1: Price Up, 2: Price Down, 3: Value Spike, 4: Volume Spike
     """
     async with AsyncSessionLocal() as session:
         repo = StockRepository(session)
-        # Fetch top 50 stocks sorted by AI score or updated time
+        
+        # 1. New: "last_scan" based on CSV
+        if type == "last_scan":
+            try:
+                from workspace_manager import workspace_mgr
+                csv_path = workspace_mgr.get_path("market", "Market_Scan_Results.csv")
+                
+                if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+                    logger.info("Market_Scan_Results.csv not found or empty, falling back to ranking type 1.")
+                    type = "1"
+                else:
+                    df = pd.read_csv(csv_path)
+                    
+                    # 🔍 Check minimum requirements for the UI (Symbol and Name)
+                    # Column names in bulk_screener: 銘柄コード, 銘柄名, 終値, 騰落率, 出来高, RSI, PER, PBR, 利回り, AIスコア, AI要約, ソース
+                    required_cols = ["銘柄コード", "銘柄名"]
+                    if not all(c in df.columns for c in required_cols):
+                        logger.warning(f"CSV missing required columns. Found: {df.columns.tolist()}")
+                        type = "1"
+                    else:
+                        results = []
+                        for _, row in df.iterrows():
+                            symbol = str(row["銘柄コード"])
+                            # Enrich with AI data from DB if exists
+                            report = await repo.get_latest_analysis(symbol)
+                            
+                            stock_dict = {
+                                "symbol": symbol,
+                                "symbolname": str(row.get("銘柄名", "Unknown")),
+                                "currentprice": _safe_float(row.get("終値")) or 0.0,
+                                "change_percent": _safe_float(row.get("騰落率")) or 0.0,
+                                "volume": _safe_int(row.get("出来高")),
+                                "rsi": _safe_float(row.get("RSI")),
+                                "per": _safe_float(row.get("PER")),
+                                "pbr": _safe_float(row.get("PBR")),
+                                "dividend_yield": _safe_float(row.get("利回り")),
+                                "ai_score": report.score if report else (_safe_float(row.get("AIスコア")) or 0.0),
+                                "ai_summary": report.summary if report else str(row.get("AI要約", "")),
+                                "is_watched": False 
+                            }
+                            results.append(stock_dict)
+                        
+                        if not results:
+                            type = "1"
+                        else:
+                            return results
+            except Exception as e:
+                logger.error(f"Failed to read last scan CSV: {e}", exc_info=True)
+                type = "1" # Fallback on error
+
+        # 2. If type is a numeric ranking type, fetch live from API
+        if type in ["1", "2", "3", "4", "13", "14", "15"]:
+            try:
+                # Fetch ranking from API with targeted Strategy/Exchange
+                ranking_stocks = api_client.get_ranking(type, exchange=exchange)
+                results = []
+                for s in ranking_stocks:
+                    # Enrich with AI data from DB if exists
+                    report = await repo.get_latest_analysis(s.symbol)
+                    
+                    # Ensure name is not Unknown
+                    if s.symbolname == "Unknown" or not s.symbolname:
+                        # Attempt to get better name
+                        if s.symbol in api_client.stock_name_map:
+                            s.symbolname = api_client.stock_name_map[s.symbol]
+                        else:
+                            # Try DB
+                            master = await repo.get_or_create_stock(s.symbol)
+                            if master.name != "Unknown":
+                                s.symbolname = master.name
+
+                    stock_dict = s.dict()
+                    if report:
+                        stock_dict["ai_score"] = report.score
+                        stock_dict["ai_summary"] = report.summary
+                        stock_dict["ai_sentiment"] = report.sentiment
+                    
+                    results.append(stock_dict)
+                return results
+            except Exception as e:
+                logger.error(f"Failed to fetch live ranking for scanner: {e}")
+                # Fallback to Top AI stocks
+
+        
+        # 2. Default/Fallback: Fetch top 50 stocks sorted by AI score
         stocks = await repo.get_top_ai_stocks(limit=50)
         return stocks
 
@@ -905,12 +1049,15 @@ async def trigger_technical_scan(background_tasks: BackgroundTasks, strategy: st
     return {"message": f"Technical market scan ({strategy}) started in background."}
 
 @app.post("/api/admin/scan-ai")
-async def trigger_ai_scan(background_tasks: BackgroundTasks):
+async def trigger_ai_scan(background_tasks: BackgroundTasks, request: Optional[ScanAIRequest] = None):
     """
-    Local AI screening for the results found by technical scan.
+    Local AI screening for specific symbols or results found by technical scan.
     """
-    background_tasks.add_task(market_screener.run_ai_screening)
-    return {"message": "Local AI screening started in background."}
+    symbols = request.symbols if request else None
+    scope = request.scope if request else "scanner"
+    background_tasks.add_task(market_screener.run_ai_screening, symbols=symbols, scope=scope)
+    return {"message": f"Local AI screening ({scope}) started in background."}
+
 
 @app.post("/api/admin/scan-market")
 async def trigger_full_scan(background_tasks: BackgroundTasks):
@@ -1007,3 +1154,126 @@ RSI: {data.rsi}
 出力はMarkdown形式でお願いします。"""
         
         return {"symbol": symbol, "prompt": prompt}
+
+@app.get("/api/analysis/local_trade/{symbol}")
+async def get_local_trade_analysis(symbol: str, username: str = Depends(authenticate)):
+    """
+    Generate trade strategy using Local LLM (Ollama).
+    """
+    # 1. Reuse the prompt generation logic (internal call or refactor)
+    prompt_data = await get_trade_strategy_prompt(symbol, username)
+    prompt = prompt_data["prompt"]
+    
+    try:
+        from local_agent import LocalAgent
+        agent = LocalAgent()
+        
+        # 2. Call Local AI
+        analysis = await agent.generate_response(prompt)
+        
+        return {
+            "symbol": symbol,
+            "analysis": analysis,
+            "source": f"Local AI ({agent.model})"
+        }
+    except Exception as e:
+        logger.error(f"Local trade analysis failed for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Local AI Error: {str(e)}")
+
+async def run_bulk_local_trade_analysis(symbols: list[str]):
+    """
+    Background worker for bulk local trade analysis.
+    Uses per-symbol DB sessions to isolate transaction failures.
+    """
+    from local_agent import LocalAgent
+    agent = LocalAgent()
+    
+    total = len(symbols)
+    logger.info(f"Starting bulk local trade analysis for {total} stocks...")
+    
+    for i, symbol in enumerate(symbols):
+        try:
+            # 1. Generate Prompt
+            prompt_data = await get_trade_strategy_prompt(symbol, "admin")
+            prompt = prompt_data["prompt"]
+            
+            # 2. Call Local AI
+            analysis = await agent.generate_response(prompt)
+            
+            # 3. Save to DB (Use a fresh session per symbol to avoid poisoned transactions)
+            async with AsyncSessionLocal() as session:
+                repo = StockRepository(session)
+                await repo.update_latest_trade_strategy(symbol, analysis)
+            logger.info(f"[{i+1}/{total}] Local trade analysis saved for {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Failed bulk trade analysis for {symbol}: {e}")
+        
+        # Rate limit/Load relief for Local AI
+        await asyncio.sleep(1)
+
+@app.post("/api/admin/bulk-local-trade")
+async def trigger_bulk_local_trade(background_tasks: BackgroundTasks, username: str = Depends(authenticate)):
+    """
+    Triggers local AI analysis for all watchlist stocks.
+    """
+    async with AsyncSessionLocal() as session:
+        repo = StockRepository(session)
+        symbols = await repo.get_watchlist_symbols()
+        if not symbols:
+            symbols = settings.WATCHLIST
+    
+    background_tasks.add_task(run_bulk_local_trade_analysis, symbols)
+    return {"message": f"Bulk local AI trade analysis started for {len(symbols)} stocks."}
+
+@app.get("/api/consolidated_prompt")
+async def get_consolidated_prompt(username: str = Depends(authenticate)):
+    """
+    Generates (or returns cached) massive synthesis prompt for all watchlist stocks.
+    """
+    import os
+    from workspace_manager import workspace_mgr
+    
+    # 1. Check for background-generated cache (from overnight scan)
+    cache_path = workspace_mgr.get_path("config", "Consolidated_Prompt.txt")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if content:
+                print(f"[API] Returning cached consolidated prompt from {cache_path}")
+                return {"prompt": content, "cached": True}
+        except Exception as e:
+            print(f"Error reading prompt cache: {e}")
+
+    # 2. Fallback to on-demand generation
+    print("[API] No cache found. Generating consolidated prompt on-demand...")
+    async with AsyncSessionLocal() as session:
+        repo = StockRepository(session)
+        symbols = await repo.get_watchlist_symbols()
+        if not symbols:
+            symbols = settings.WATCHLIST
+            
+        stocks_data = []
+        for symbol in symbols:
+            # 1. Current Market Data
+            stock_data = await get_stock_data_with_fallback(symbol, repo)
+            
+            # 2. Latest AI Report (contains Gemini score/summary AND Local Trade Strategy)
+            report = await repo.get_latest_analysis(symbol)
+            
+            # 3. EDINET/Disclosure Notes
+            from sqlalchemy import select, desc
+            from models_db import StockNote
+            stmt = select(StockNote).where(StockNote.symbol == symbol).order_by(desc(StockNote.created_at)).limit(3)
+            res = await session.execute(stmt)
+            notes = res.scalars().all()
+            
+            stocks_data.append({
+                "stock": stock_data,
+                "report": report,
+                "notes": notes
+            })
+            
+        prompt = prompts.generate_consolidated_gemini_prompt(stocks_data)
+        return {"prompt": prompt, "count": len(stocks_data)}

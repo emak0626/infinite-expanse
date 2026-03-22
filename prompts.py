@@ -130,3 +130,54 @@ def generate_quick_alert(stock: StockData) -> str:
     """Generates a short alert message."""
     reason = "急騰/急落" if abs(stock.change_percent) > 3 else "出来高急増"
     return f"【{stock.symbolname}】{reason}検知！ 現在:{stock.currentprice}円 ({stock.change_percent}%)"
+
+def generate_consolidated_gemini_prompt(stocks_data: list[dict]) -> str:
+    """
+    Generates a massive synthesis prompt for Gemini.
+    stocks_data: List of dicts, each containing:
+      - stock: StockData
+      - report: AnalysisReport (latest)
+      - notes: List[StockNote]
+    """
+    sections = []
+    
+    for item in stocks_data:
+        s = item['stock']
+        r = item['report']
+        notes = item['notes']
+        
+        symbol_section = f"## 銘柄: {s.symbolname} ({s.symbol})\n"
+        symbol_section += f"- **市場データ**: 現在値 {s.currentprice}円 ({s.change_percent}%), RSI {s.rsi or 'N/A'}, PBR {s.pbr or 'N/A'}\n"
+        
+        if r:
+            symbol_section += f"- **AI詳細分析 (前回)**: スコア {r.score}/10, 要約: {r.summary}\n"
+            if r.trade_strategy:
+                symbol_section += f"- **ローカルAI売買戦略**: \n{r.trade_strategy}\n"
+        
+        if notes:
+            symbol_section += "- **EDINET/開示情報からの知見**:\n"
+            for n in notes:
+                symbol_section += f"  - [{n.priority}] {n.note}\n"
+        
+        sections.append(symbol_section)
+
+    all_sections = "\n---\n".join(sections)
+    
+    return f"""
+# 銘柄群の総合投資戦略コンサルティング依頼
+
+あなたはプロのヘッジファンドマネージャー兼シニアアナリストです。
+以下のウォッチリスト銘柄群（計{len(stocks_data)}銘柄）について、提供された「数値データ」「過去のAI詳細分析」「ローカルAIによる売買戦略」「EDINET等の開示情報」をすべて統合し、
+『今週〜来週にかけての具体的な集中的な投資戦略』を提案してください。
+
+## 依頼内容
+1. **マクロ・ミクロの統合判断**: 銘柄ごとの個別材料（EDINET等）と需給（ローカル戦略の視点）を組み合わせ、どの銘柄が「最も確度が高い」かを選別してください。
+2. **ポートフォリオの最適化**: これらの銘柄の中で、資金を集中させるべき「本命」と、ヘッジまたは様子見すべき「懸念」を分けてください。
+3. **具体的なトレード指示**: 共通する地合いやセクターの強弱も考慮し、総合的な売買シナリオ（買い／中立／売り）を日本語で詳細に提示してください。
+
+---
+{all_sections}
+---
+
+※回答はプロフェッショナルかつ実戦的なトーンで、Markdown形式でお願いします。
+"""

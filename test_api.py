@@ -1,29 +1,26 @@
-import google_auth
-from googleapiclient.errors import HttpError
+import urllib.request
+import json
+import base64
+import time
 
-def test_apis():
-    print("Testing Google Drive API...")
-    try:
-        drive_service = google_auth.get_drive_service()
-        about = drive_service.about().get(fields="user").execute()
-        print(f"Drive API Auth Success! Service Account Email: {about['user']['emailAddress']}")
-    except HttpError as e:
-        print(f"Drive API Error: {e}")
-        return False
-    except Exception as e:
-        print(f"Unknown Error: {e}")
-        return False
+auth_str = base64.b64encode(b'admin:infinity').decode('utf-8')
+headers = {'Authorization': 'Basic ' + auth_str}
 
-    print("\nTesting Google Sheets API...")
-    try:
-        sheets_client = google_auth.get_sheets_client()
-        # This just authorizes, let's try opening a dummy spreadsheet
-        print("Sheets API Auth Success! (Note: Further tests require an existing sheet ID)")
-    except Exception as e:
-        print(f"Sheets API Error: {e}")
-        return False
-
-    return True
-
-if __name__ == "__main__":
-    test_apis()
+try:
+    print("Triggering technical scan for growth...")
+    req_trigger = urllib.request.Request('http://localhost:8000/api/admin/scan-technical?strategy=growth', method='POST', headers=headers)
+    urllib.request.urlopen(req_trigger)
+    
+    print("Waiting 3 seconds for the scan to save CSV...")
+    time.sleep(3)
+    
+    print("Fetching last scan results...")
+    req_scanner = urllib.request.Request('http://localhost:8000/api/market_scanner?type=last_scan', headers=headers)
+    response = urllib.request.urlopen(req_scanner)
+    results = json.loads(response.read().decode('utf-8'))
+    print(f'Total results: {len(results)}')
+    if results:
+        head = results[0]
+        print(f"Sample: {head.get('symbol')} {head.get('symbolname')} AI={head.get('ai_score')} Source={head.get('ソース')}")
+except Exception as e:
+    print(f"Error: {e}")
