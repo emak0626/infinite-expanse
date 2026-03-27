@@ -247,7 +247,6 @@ async function fetchStocks(refresh = false) {
         currentStocks = watchlistData;
 
         console.log(`Stocks loaded: ${currentStocks.length}`);
-        renderHeatmap(currentStocks);
         renderStocks();
 
     } catch (error) {
@@ -503,14 +502,17 @@ function renderStocks() {
             ${aiReasoning}
 
             <div class="card-actions" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:16px;">
-                <button class="btn btn-primary" style="flex:1; min-width:140px; height:40px; font-size:0.75rem;" onclick="copyPrompt('${stock.symbol}', event)">PROMPTコピー</button>
-                <button class="btn btn-outline" style="flex:1; min-width:140px; height:40px; font-size:0.75rem;" onclick="viewReport('${stock.symbol}')">AI詳細分析</button>
-                <button class="btn btn-outline" style="flex:1; min-width:140px; height:40px; font-size:0.75rem; border-color:rgba(0,255,255,0.3);" onclick="viewTradeAnalysis('${stock.symbol}')">🎯 Gemini戦略</button>
+                <button class="btn btn-primary" style="flex:1; min-width:140px; height:40px; font-size:0.75rem;" onclick="copyPrompt('${stock.symbol}', event)" title="Gemini用の詳細分析依頼プロンプトをコピーします">PROMPTコピー</button>
+                <button class="btn btn-outline" style="flex:1; min-width:140px; height:40px; font-size:0.75rem;" onclick="viewReport('${stock.symbol}')" title="作成済みの最新AI分析レポートを表示します">AI詳細分析</button>
+                <button class="btn btn-outline" style="flex:1; min-width:140px; height:40px; font-size:0.75rem; border-color:rgba(0,255,255,0.3);" onclick="viewTradeAnalysis('${stock.symbol}')" title="具体的な売買ポイントを相談するためのプロンプトを作成します">🎯 売買戦略</button>
             </div>
         `;
         list.appendChild(card);
         fetchNotes(stock.symbol);
     });
+
+    // 🏆 Always sync heatmap with what's actually rendered
+    renderHeatmap(filtered);
 }
 
 async function fetchNotes(symbol) {
@@ -1009,15 +1011,17 @@ async function updateScanStatus() {
             if (aiBtn) aiBtn.disabled = true;
             if (btn) btn.classList.add('scanning-glow');
             if (aiBtn) aiBtn.classList.add('scanning-glow');
-            const cancelBtn = document.getElementById('scan-cancel-btn');
-            if (cancelBtn) cancelBtn.style.display = 'inline-block';
         } else {
             if (btn) btn.disabled = false;
             if (aiBtn) aiBtn.disabled = false;
             if (btn) btn.classList.remove('scanning-glow');
             if (aiBtn) aiBtn.classList.remove('scanning-glow');
-            const cancelBtn = document.getElementById('scan-cancel-btn');
-            if (cancelBtn) cancelBtn.style.display = 'none';
+        }
+        
+        // Only show CANCEL button if AI screening is specifically running
+        const cancelBtn = document.getElementById('scan-cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.style.display = data.is_ai_running ? 'inline-block' : 'none';
         }
 
         // Auto-refresh scanner if a scan just finished and we are on the scanner tab
@@ -1114,7 +1118,7 @@ async function viewTradeAnalysis(symbol) {
         const response = await fetch(`/api/analysis/trade_prompt/${symbol}`);
         if (!response.ok) throw new Error("Failed to fetch trade prompt");
         const data = await response.json();
-        showManualCopyModal(data.prompt);
+        showManualCopyModal(data.prompt, symbol); // Pass symbol to enable saving reply
     } catch (e) {
         console.error(e);
         alert(`エラー: ${e.message}`);
@@ -1183,6 +1187,12 @@ async function getConsolidatedPrompt() {
         if (!response.ok) throw new Error("Failed to generate consolidated prompt");
         
         const data = await response.json();
+        
+        // Update Market Context UI if data is returned
+        if (data.market_context) {
+            updateMarketContextUI(data.market_context);
+        }
+        
         showManualCopyModal(data.prompt);
     } catch (e) {
         console.error(e);
@@ -1192,6 +1202,202 @@ async function getConsolidatedPrompt() {
             btn.innerHTML = originalText;
             btn.disabled = false;
         }
+    }
+}
+
+function updateMarketContextUI(context) {
+    const timeLabel = document.getElementById('market-context-time');
+    const indicesRow = document.getElementById('market-indices-row');
+    const trendsRow = document.getElementById('market-trends-tags');
+    
+    if (!context) return;
+    
+    if (timeLabel) timeLabel.innerText = context.timestamp || '--:--';
+    
+    if (indicesRow) {
+        indicesRow.innerHTML = Object.entries(context.indices).map(([name, val]) => {
+            const isUp = val.change >= 0;
+            const color = isUp ? 'var(--up-color)' : 'var(--down-color)';
+            return `
+                <div class="index-item" style="display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-size: 0.6rem; opacity: 0.7;">${name}</span>
+                    <div style="display: flex; align-items: baseline; gap: 4px;">
+                        <span style="font-weight: 700; font-size: 0.85rem;">${val.value.toLocaleString()}</span>
+                        <span style="font-size: 0.65rem; color: ${color};">${isUp ? '+' : ''}${val.change_pct}%</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    if (trendsRow) {
+        trendsRow.innerHTML = (context.trends || []).map(t => `
+            <span class="badge" style="background: rgba(255,255,255,0.05); font-size: 0.6rem; padding: 2px 6px;">#${t}</span>
+        `).join('');
+    }
+}
+
+async function fetchLatestMarketContext() {
+    try {
+        const response = await fetch('/api/consolidated_prompt'); // This returns market_context
+        const data = await response.json();
+        if (data.market_context) {
+            updateMarketContextUI(data.market_context);
+        }
+    } catch (e) {
+        console.error("Failed to fetch market context:", e);
+    }
+}
+
+// Initial fetch on load
+setTimeout(fetchLatestMarketContext, 1000);
+
+function showGeneralAnalysisPasteUI() {
+    const overlay = document.getElementById('analysis-overlay');
+    const title = document.getElementById('overlay-title');
+    const reportDiv = document.getElementById('report-content');
+    const chartContainer = document.querySelector("#chart-container");
+
+    overlay.classList.add('active');
+    title.innerText = "市場総合分析の保存";
+    if (chartContainer) chartContainer.innerHTML = '<div style="padding:40px; text-align:center; opacity:0.3; font-size:4rem;">📊</div>';
+    
+    const now = new Date();
+    const dateStr = now.getFullYear() + 
+                    String(now.getMonth() + 1).padStart(2, '0') + 
+                    String(now.getDate()).padStart(2, '0');
+    const timeStr = String(now.getHours()).padStart(2, '0') + 
+                    String(now.getMinutes()).padStart(2, '0');
+    const defaultFilename = `${dateStr}_MarketAnalysis`;
+
+    reportDiv.innerHTML = `
+        <div class="manual-paste-container" style="padding:20px; border:1px dashed var(--accent-color); border-radius:8px;">
+            <p style="color:var(--text-primary); font-weight:bold; margin-bottom:10px;">✨ Geminiの総合アドバイスを記録</p>
+            <p style="color:var(--text-secondary); margin-bottom:15px; font-size:0.9rem;">
+                「総合相談」で得られたGeminiの分析結果を貼り付けて保存してください。<br>
+                保存された内容は「Market_Analysis」フォルダに蓄積され、Driveと同期されます。
+            </p>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 5px;">ファイル名 (推奨: YYYYMMDD_内容):</label>
+                <div style="display: flex; gap: 5px; align-items: center;">
+                    <input type="text" id="general-analysis-filename" value="${defaultFilename}" style="flex: 1; background:#0d1117; color:white; border:1px solid #30363d; padding:8px; border-radius:4px; font-family:inherit;">
+                    <span style="opacity: 0.6; font-size: 0.8rem;">.md</span>
+                </div>
+            </div>
+
+            <textarea id="general-analysis-input" placeholder="Geminiの回答を貼り付けてください..." style="width:100%; height:250px; background:#0d1117; color:white; border:1px solid #30363d; padding:10px; border-radius:4px; font-family:inherit; margin-bottom:15px;"></textarea>
+            
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button class="btn btn-primary" onclick="saveGeneralAnalysis()" id="save-general-btn">分析内容を保存する</button>
+                <button class="btn" onclick="closeAnalysis()">閉じる</button>
+            </div>
+        </div>
+    `;
+}
+
+async function saveGeneralAnalysis(overwrite = false) {
+    const content = document.getElementById('general-analysis-input').value.trim();
+    const filename = document.getElementById('general-analysis-filename').value.trim();
+    
+    if (!content) {
+        alert("内容を入力してください。");
+        return;
+    }
+    
+    const btn = document.getElementById('save-general-btn');
+    btn.disabled = true;
+    btn.innerText = "保存中...";
+    
+    try {
+        const response = await fetch('/api/market_analysis/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                content: content,
+                filename: filename,
+                overwrite: overwrite
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.status === 409) {
+            if (confirm(data.message)) {
+                saveGeneralAnalysis(true);
+            }
+        } else if (response.ok) {
+            alert("総合分析結果を保存しました。");
+            closeAnalysis();
+            if (typeof fetchWorkspaceLinks === 'function') fetchWorkspaceLinks();
+            if (typeof fetchStructure === 'function') fetchStructure(); // Explorer view
+        } else {
+            alert(`保存失敗: ${data.detail || data.message || "予期しないエラー"}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("エラーが発生しました。");
+    } finally {
+        btn.disabled = false;
+        btn.innerText = "分析内容を保存する";
+    }
+}
+
+async function showMarketAnalysisHistory() {
+    const overlay = document.getElementById('analysis-overlay');
+    const title = document.getElementById('overlay-title');
+    const reportDiv = document.getElementById('report-content');
+    const historySelect = document.getElementById('history-select');
+
+    overlay.classList.add('active');
+    title.innerText = "市場総合分析 履歴回覧";
+    reportDiv.innerHTML = '<p>履歴を取得中...</p>';
+    
+    try {
+        const response = await fetch('/api/market_analysis/history');
+        const data = await response.json();
+        
+        if (data.history && data.history.length > 0) {
+            historySelect.innerHTML = data.history.map(f => {
+                const dateStr = f.name.match(/analysis_(\d{8}_\d{4})/)?.[1] || f.name;
+                return `<option value="${f.path}">${dateStr}</option>`;
+            }).join('');
+            
+            loadGeneralAnalysisFile(data.history[0].path);
+            
+            // Override historySelect change event
+            historySelect.onchange = (e) => loadGeneralAnalysisFile(e.target.value);
+        } else {
+            reportDiv.innerHTML = '<p style="text-align:center; opacity:0.5; padding:40px;">保存された総合分析はありません。</p>';
+            historySelect.innerHTML = '<option>履歴なし</option>';
+        }
+    } catch (e) {
+        console.error(e);
+        reportDiv.innerHTML = '<p style="color:var(--danger)">履歴の取得に失敗しました。</p>';
+    }
+}
+
+async function loadGeneralAnalysisFile(path) {
+    const reportDiv = document.getElementById('report-content');
+    reportDiv.innerHTML = '<p>分析資料を読み込み中...</p>';
+    
+    try {
+        // We use the full path to fetch via /api/workspace/file?path=...
+        const response = await fetch(`/api/workspace/file_content?path=${encodeURIComponent(path)}`);
+        const data = await response.json();
+        
+        reportDiv.innerHTML = `
+            <div class="ai-summary" style="border-left-color: var(--accent-primary);">
+                <span class="badge" style="background:var(--accent-primary); color:white">SAVED MARKET ANALYSIS</span>
+                <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 5px;">Path: ${path.split('/').pop()}</p>
+            </div>
+            <div class="ai-reasoning" style="margin-top:20px;">
+                ${marked.parse(data.content || "内容がありません")}
+            </div>
+        `;
+    } catch (e) {
+        console.error(e);
+        reportDiv.innerHTML = '<p style="color:var(--danger)">ファイル読み込みエラー</p>';
     }
 }
 
@@ -1246,13 +1452,79 @@ async function triggerEdinetScan() {
 }
 
 // Manual Copy Modal Controls
-function showManualCopyModal(text) {
+function showManualCopyModal(text, symbol = null) {
     const overlay = document.getElementById('manual-copy-overlay');
     const textarea = document.getElementById('manual-copy-textarea');
+    const saveBtn = document.getElementById('save-gemini-reply-btn');
+    
     if (overlay && textarea) {
         textarea.value = text;
         overlay.classList.add('active');
+        
+        // If symbol is provided, show the "Save Reply" button logic
+        if (symbol && saveBtn) {
+            saveBtn.style.display = 'block';
+            saveBtn.onclick = () => showStrategySaveUI(symbol);
+        } else if (saveBtn) {
+            saveBtn.style.display = 'none';
+        }
+        
         setTimeout(() => textarea.select(), 100);
+    }
+}
+
+function showStrategySaveUI(symbol) {
+    const overlay = document.getElementById('analysis-overlay');
+    const title = document.getElementById('overlay-title');
+    const reportDiv = document.getElementById('report-content');
+    
+    overlay.classList.add('active');
+    title.innerText = `売買戦略の回答を保存: ${symbol}`;
+    reportDiv.innerHTML = `
+        <div style="padding:15px;">
+            <p style="font-size:0.85rem; opacity:0.7; margin-bottom:10px;">
+                Gemini からの回答（売買戦略の詳細）を以下に貼り付けてください。
+            </p>
+            <textarea id="strategy-result-input" style="width:100%; height:350px; background:rgba(0,0,0,0.2); color:white; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:0.9rem; resize:none;" placeholder="ここへ解答を貼り付け..."></textarea>
+            <div style="margin-top:15px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn btn-outline" onclick="document.getElementById('analysis-overlay').classList.remove('active')">キャンセル</button>
+                <button class="btn btn-primary" onclick="saveStrategyResult('${symbol}')">💾 戦略として保存</button>
+            </div>
+        </div>
+    `;
+    closeManualCopyModal();
+}
+
+async function saveStrategyResult(symbol, overwrite = false) {
+    const content = document.getElementById('strategy-result-input').value;
+    if (!content) return alert("内容を入力してください。");
+    
+    try {
+        const response = await fetch('/api/strategy/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ symbol, content, overwrite })
+        });
+        
+        if (response.status === 409) {
+            const data = await response.json();
+            if (confirm(data.message)) {
+                return saveStrategyResult(symbol, true);
+            }
+            return;
+        }
+        
+        if (response.ok) {
+            alert("売買戦略を個別に保存しました。フルエクスプローラーの Trading_Strategies フォルダから確認できます。");
+            document.getElementById('analysis-overlay').classList.remove('active');
+            if (typeof fetchStructure === 'function') fetchStructure();
+        } else {
+            const err = await response.json();
+            alert(`保存失敗: ${err.detail || "Unknown error"}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("通信エラーが発生しました。");
     }
 }
 

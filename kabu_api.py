@@ -23,11 +23,35 @@ class KabuApiClient:
             if os.path.exists(mapping_path):
                 with open(mapping_path, "r", encoding="utf-8") as f:
                     self.stock_name_map = json.load(f)
-                    # print(f"DEBUG: Loaded {len(self.stock_name_map)} stock names from {mapping_path}")
             else:
-                print(f"WARNING: stock_names.json not found at {mapping_path}")
+                # Create empty if not exists
+                with open(mapping_path, "w", encoding="utf-8") as f:
+                    json.dump({}, f)
         except Exception as e:
             print(f"Error loading stock_names.json: {e}")
+
+    def _save_stock_name(self, symbol: str, name: str):
+        """Dynamically learns and persists a stock name."""
+        if not name or name == "Unknown" or name.startswith("銘柄") or name == symbol:
+            return
+        
+        # Guard against error messages
+        invalid_keywords = ["[Local AI Fallback]", "【接続エラー】", "【モデル未取得】", "【Ollamaエラー】"]
+        if any(k in name for k in invalid_keywords):
+            return
+
+        if self.stock_name_map.get(symbol) == name:
+            return
+
+        self.stock_name_map[symbol] = name
+        try:
+            import os
+            import json
+            mapping_path = os.path.join(os.path.dirname(__file__), "stock_names.json")
+            with open(mapping_path, "w", encoding="utf-8") as f:
+                json.dump(self.stock_name_map, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Failed to persist stock name {symbol}: {e}")
 
     def _get_token(self) -> str:
         """取得したトークンを返し、無効なら再取得する。"""
@@ -102,34 +126,16 @@ class KabuApiClient:
         """
         if self.mock_mode:
             self._current_type = type 
-            # モック時はウォッチリスト + 多様な銘柄を混ぜて「全市場」をシミュレート
-            # 主要(Prime)
-            prime_stocks = ["7203", "9984", "6758", "8035", "5401", "9101", "8306", "8316", "7267", "6501", "7201", "6701", "8058", "4063", "4568", "9432"]
-            # スタンダード(Standard) - 約50銘柄に拡張
-            standard_stocks = [
-                "2702", "7532", "2782", "9873", "7606", "7564", "6312", "7114", "9270", "2338",
-                "3333", "4563", "6789", "8900", "9000", "1234", "5678", "9012", "3456", "7890",
-                "1111", "2222", "3334", "4444", "5555", "6666", "7777", "8888", "9999", "1010",
-                "2020", "3030", "4040", "5050", "6060", "7070", "8080", "9090", "1001", "2002",
-                "3003", "4004", "5005", "6111", "6222", "6333", "6444", "6555", "6661", "6777"
-            ]
-            # グロース(Growth) - 約50銘柄に拡張
-            growth_stocks = [
-                "4478", "4485", "5253", "2158", "4593", "7794", "9166", "5214", "4165", "147A",
-                "151A", "152A", "153A", "154A", "155A", "156A", "157A", "158A", "159A", "160A",
-                "2100", "2200", "2300", "2400", "2500", "2600", "2700", "2800", "2900", "3100",
-                "3200", "3300", "3400", "3500", "3600", "3700", "3800", "3900", "4100", "4200",
-                "4300", "4401", "4402", "4403", "4404", "4405", "4406", "4407", "4408", "4409"
-            ]
+            import random
             
-            if exchange == "G":
-                scan_pool = growth_stocks
-            elif exchange == "S":
-                scan_pool = standard_stocks
-            elif exchange == "P":
-                scan_pool = prime_stocks
-            else:
-                scan_pool = list(set(settings.WATCHLIST + prime_stocks + standard_stocks + growth_stocks))
+            all_codes = list(self.stock_name_map.keys())
+            if not all_codes:
+                # フェールセーフ
+                all_codes = ["7203", "9984", "6758", "8035", "5401", "9101"]
+                
+            # モック時は実在する名簿からランダムに50銘柄（ALLは100銘柄）抽出してシミュレート
+            sample_size = 50 if exchange in ["G", "S", "P"] else 100
+            scan_pool = random.sample(all_codes, min(sample_size, len(all_codes)))
             
             return [self._generate_mock_data(s) for s in scan_pool]
 
@@ -162,12 +168,25 @@ class KabuApiClient:
         symbol = data.get("Symbol", "")
         symbol_name = data.get("SymbolName", "")
         
-        # Fallback to local map if name is Unknown or empty or just numeric code
-        if not symbol_name or symbol_name == "Unknown" or str(symbol_name).isdigit():
-            if symbol in self.stock_name_map:
-                symbol_name = self.stock_name_map[symbol]
-            else:
+        # 1. Try to get name from detailed symbol info if board was lacking it
+        if info and (not symbol_name or symbol_name == "Unknown"):
+            info_name = info.get("SymbolName")
+            if info_name and info_name != "Unknown":
+                symbol_name = info_name
+
+        # 2. 強制的にローカルの綺麗な名簿（stock_names.json）を優先する
+        if symbol in self.stock_name_map:
+            symbol_name = self.stock_name_map[symbol]
+        else:
+            # 辞書にない場合はフォールバック
+            is_invalid = not symbol_name or symbol_name == "Unknown" or str(symbol_name).isdigit() or symbol_name == symbol
+            if is_invalid:
                 symbol_name = f"銘柄 {symbol}"
+            else:
+                # APIのレスポンスに自身のコードが含まれている場合は除去
+                symbol_name = symbol_name.replace(symbol, "").strip()
+                # 3. Valid name found! Learn it.
+                self._save_stock_name(symbol, symbol_name)
 
         return StockData(
             symbol=symbol,

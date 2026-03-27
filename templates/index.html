@@ -37,7 +37,7 @@
             </div>
             <div class="header-actions" style="display: flex; gap: 8px; align-items: center;">
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
-                    <button id="scan-edinet-btn" class="btn btn-outline btn-sm" onclick="triggerEdinetScan()">🔍 AUTO INFO</button>
+                    <button id="scan-edinet-btn" class="btn btn-outline btn-sm" onclick="triggerEdinetScan()" title="適時開示情報（EDINET）をスキャンし、重要なニュースを自動抽出します">🔍 AUTO INFO</button>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
                     <select id="scan-strategy" class="btn-sm" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.65rem; padding: 2px 4px; margin-bottom: 2px;">
@@ -47,7 +47,7 @@
                         <option value="long">🌱 長期(配当/割安)</option>
                         <option value="undervalued">💎 超割安(PBR)</option>
                     </select>
-                    <button id="scan-market-btn" class="btn btn-outline btn-sm" onclick="triggerTechnicalScan()">📡 SCAN</button>
+                    <button id="scan-market-btn" class="btn btn-outline btn-sm" onclick="triggerTechnicalScan()" title="東証全市場から条件に合う銘柄を数秒で抽出します">📡 SCAN</button>
                     <span id="last-scan-time" style="font-size: 0.55rem; opacity: 0.6; font-family: 'JetBrains Mono';">Last: --:--</span>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
@@ -56,8 +56,8 @@
                             <option value="scanner">📋 スキャン結果</option>
                             <option value="watchlist">❤️ ウォッチリスト</option>
                         </select>
-                        <button id="scan-cancel-btn" class="btn btn-outline btn-sm" onclick="cancelAIScreening()" style="display: none; border-color: var(--danger); color: var(--danger);">🛑 CANCEL</button>
-                        <button id="scan-ai-btn" class="btn btn-primary btn-sm" onclick="triggerAIScreening()">🤖 AI SCREEN</button>
+                        <button id="scan-cancel-btn" class="btn btn-outline btn-sm" onclick="cancelAIScreening()" style="display: none; border-color: var(--danger); color: var(--danger);" title="実行中のAI分析を中断します">🛑 CANCEL</button>
+                        <button id="scan-ai-btn" class="btn btn-primary btn-sm" onclick="triggerAIScreening()" title="抽出された銘柄リストをローカルAIで有望度スコアリングします">🤖 AI SCREEN</button>
                     </div>
                     <span id="last-ai-scan-time" style="font-size: 0.55rem; opacity: 0.6; font-family: 'JetBrains Mono';">AI: --:--</span>
                 </div>
@@ -81,14 +81,35 @@
         <div class="action-bar" style="margin: 16px 0;">
             <div class="search-box-wrapper">
                 <input type="text" id="symbol-search" placeholder="銘柄コードを入力..." maxlength="4">
-                <button class="add-btn" onclick="searchAndAddStock()">➕</button>
+                <button class="add-btn" onclick="searchAndAddStock()" title="銘柄コードを入力してウォッチリストに追加します">➕</button>
             </div>
         </div>
+
+            <!-- Market Context Area -->
+            <div id="market-context-panel" class="glass-card animate-in" style="margin-bottom: 24px; padding: 16px; border-left: 4px solid var(--accent-primary);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                    <h3 style="margin: 0; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;">
+                        🌍 市場概況 <span id="market-context-time" style="font-size: 0.65rem; opacity: 0.6; font-weight: normal;">--:--</span>
+                    </h3>
+                     <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-outline btn-xs" onclick="showMarketAnalysisHistory()" title="以前に作成・保存した市場総合分析レポートを一覧表示します">過去の分析</button>
+                        <button class="btn btn-primary btn-sm" onclick="showGeneralAnalysisPasteUI()" title="Geminiでの総合分析結果を正式なレポートとして保存します">分析結果を保存</button>
+                    </div>
+                </div>
+                <div id="market-indices-row" style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 12px;">
+                    <!-- Indices will be injected here -->
+                    <div style="font-size: 0.75rem; opacity: 0.5;">市場データを読み込み中...</div>
+                </div>
+                <div id="market-trends-row" style="font-size: 0.75rem; display: flex; align-items: center; gap: 8px;">
+                    <span style="opacity: 0.6;">注目のキーワード:</span>
+                    <div id="market-trends-tags" style="display: flex; gap: 6px;"></div>
+                </div>
+            </div>
 
             <!-- Strategy Tabs -->
             <div id="market-dashboard">
                 <!-- Heatmap -->
-                <div class="section-title">マーケット状況</div>
+                <div class="section-title">銘柄別騰落状況</div>
                 <div id="heatmap-scroll" class="heatmap-scroll">
                     <!-- Injected via JS -->
                 </div>
@@ -124,7 +145,7 @@
                         <span id="workspace-toggle-icon" style="transition: transform 0.3s; font-size: 0.7rem; color: var(--text-secondary);">▶</span>
                         <div class="section-title" style="margin: 0;">分析レポート一覧 (Hub)</div>
                     </div>
-                    <a href="/explorer" class="btn btn-outline btn-xs" style="font-size: 0.65rem; padding: 4px 8px;" onclick="event.stopPropagation()">📂 フルエクスプローラー</a>
+                    <a href="/explorer" class="btn btn-outline btn-xs" style="font-size: 0.65rem; padding: 4px 8px;" onclick="event.stopPropagation()" title="ワークスペース内の全ファイルを管理・閲覧します">📂 フルエクスプローラー</a>
                 </div>
                 <div id="workspace-content" style="display: none; padding: 0 16px 16px 16px; border-top: 1px solid var(--border);">
                     <div id="workspace-links" style="margin-top: 12px;">
@@ -187,6 +208,7 @@
                 </p>
                 <textarea id="manual-copy-textarea" readonly style="width:100%; height:300px; background:#0d1117; color:white; border:1px solid #30363d; padding:12px; border-radius:6px; font-family:'JetBrains Mono', monospace; font-size:0.85rem; line-height:1.5; resize:none;" onclick="this.select()"></textarea>
                 <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button id="save-gemini-reply-btn" class="btn btn-outline" style="display:none; border-color:#8e44ad; color:#8e44ad;">💾 返信を保存する</button>
                     <button class="btn btn-outline" onclick="closeManualCopyModal()">閉じる</button>
                     <button class="btn btn-primary" onclick="window.open('https://gemini.google.com/app', '_blank'); closeManualCopyModal();">コピーした(Geminiを開く)</button>
                 </div>
@@ -195,7 +217,7 @@
     </div>
 
 
-    <script src="/static/script.js?v=1.5" defer></script>
+    <script src="/static/script.js?v=1.7" defer></script>
 </body>
 
 </html>

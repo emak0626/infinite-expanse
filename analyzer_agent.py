@@ -63,21 +63,21 @@ class GeminiAgent:
 
         最終的に、これら三者の意見を統合し、バイアスのない客観的な評価を出力してください。
 
-        Output format: JSON
+        Output format: JSON (All text values must be in Japanese)
         Schema:
         {{
-            "summary": "Key takeaways and analytical conclusion (3-5 sentences in Japanese)",
-            "score": float (0-10, 10 is strong buy),
-            "sentiment": "Bullish | Neutral | Bearish",
-            "reasoning": "Markdown explanation integrating multi-persona discussion (in Japanese)",
+            "summary": "分析の結論と要約 (3-5文の日本語)",
+            "score": float (0-10, 10が強い買い推奨),
+            "sentiment": "強気 | 中立 | 弱気",
+            "reasoning": "各ペルソナの議論を統合した詳細な根拠 (Markdown形式、日本語)",
             "persona_views": {{
-                "value": "Value investor's perspective",
-                "risk": "Devil's advocate's perspective",
-                "technical": "Strategist's perspective"
+                "value": "バリュー投資家としての視点",
+                "risk": "デビルズ・アドボケート（リスク管理）としての視点",
+                "technical": "テクニカル・ストラテジストとしての視点"
             }},
-            "risks": ["Specific risk 1", "Specific risk 2"],
-            "opportunities": ["Specific opportunity 1", "Specific opportunity 2"],
-            "catalysts": ["Potential spark for price movement"]
+            "risks": ["具体的なリスク要因1", "具体的なリスク要因2"],
+            "opportunities": ["具体的な投資機会1", "具体的な投資機会2"],
+            "catalysts": ["価格変動のきっかけとなり得る材料"]
         }}
         """
 

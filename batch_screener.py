@@ -45,23 +45,24 @@ class BatchScreener:
         stocks_json = json.dumps(stocks_data, ensure_ascii=False, indent=2)
         
         return f"""
-        You are an expert Algorithmic Trader and Market Analyst.
-        Your task is to perform an initial screening of the following stocks to identify high-potential candidates.
+        あなたはプロのアルゴリズムトレーダー兼マーケットアナリストです。
+        提供された銘柄リストを分析し、投資妙味の高い候補を選別・ランク付けしてください。
         
-        Input Data (JSON List):
+        入力データ (JSON形式):
         {stocks_json}
         
-        For each stock, evaluate the trend and determine:
-        1. Score: 0-10 (10 is high potential)
-        2. Tag: 'Long-term', 'Short-term', or 'Watch'
-        3. Simple Comment: Reason for the score (max 15 words)
+        各銘柄について、トレンドとファンダメンタルズを評価し、以下を決定してください：
+        1. スコア: 0-10 (10が最も有望)
+        2. タグ: '長期投資', '短期トレード', または '監視'
+        3. 詳細コメント: 選定理由を具体的かつ簡潔な日本語で記述してください（最大50文字）。
         
-        Return the results in JSON format as a list of objects.
-        Schema:
+        結果は以下のJSONフォーマットで、リスト形式で返してください。
+        スキーマ:
         {{
             "results": [
                 {{
                     "symbol": "string",
+                    "name": "string",
                     "score": float,
                     "tag": "string",
                     "comment": "string"

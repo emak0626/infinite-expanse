@@ -164,6 +164,7 @@
                 <a href="#section-6" class="nav-item">6. AIスコア定義</a>
                 <a href="#section-7" class="nav-item">7. 用語集</a>
                 <a href="#section-8" class="nav-item">8. トラブル対応</a>
+                <a href="#section-9" class="nav-item">9. 自動実行</a>
             </nav>
             <div id="manual-content" class="markdown-body">
                 <p>マニュアルを読み込み中...</p>
@@ -172,6 +173,22 @@
     </div>
 
     <script>
+        function scrollToId(targetId) {
+            const targetElement = document.getElementById(targetId);
+            if (targetElement) {
+                const offset = 80; // Adjust for sticky nav
+                const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
+                window.scrollTo({
+                    top: elementPosition - offset,
+                    behavior: 'smooth'
+                });
+                // Update active state in sticky-nav
+                document.querySelectorAll('.nav-item').forEach(nav => {
+                    nav.classList.toggle('active', nav.getAttribute('href') === `#${targetId}`);
+                });
+            }
+        }
+
         async function loadManual() {
             try {
                 const response = await fetch('/manual_md');
@@ -179,27 +196,37 @@
                 const contentDiv = document.getElementById('manual-content');
                 contentDiv.innerHTML = marked.parse(text);
                 
-                // Assign IDs to h2 headers for navigation
-                const headers = contentDiv.querySelectorAll('h2');
+                // Assign IDs to h2 headers for navigation, skipping special headers like "目次"
+                const headers = Array.from(contentDiv.querySelectorAll('h2')).filter(h => 
+                    !h.textContent.includes('目次')
+                );
+                
                 headers.forEach((h, index) => {
-                    h.id = `section-${index + 1}`;
+                    const sectionId = `section-${index + 1}`;
+                    h.id = sectionId;
                 });
 
-                // Smooth scroll handling
+                // Update links in the Markdown-generated Table of Contents to match the section IDs
+                // Assuming the first ol/ul is the ToC
+                const internalToc = contentDiv.querySelector('ol, ul');
+                if (internalToc) {
+                    const links = internalToc.querySelectorAll('a');
+                    links.forEach((link, idx) => {
+                        const sectionId = `section-${idx + 1}`;
+                        link.setAttribute('href', `#${sectionId}`);
+                        link.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            scrollToId(sectionId);
+                        });
+                    });
+                }
+
+                // Smooth scroll handling for sticky nav items
                 document.querySelectorAll('.nav-item').forEach(anchor => {
                     anchor.addEventListener('click', function (e) {
                         e.preventDefault();
                         const targetId = this.getAttribute('href').substring(1);
-                        const targetElement = document.getElementById(targetId);
-                        if (targetElement) {
-                            window.scrollTo({
-                                top: targetElement.offsetTop - 80, // Adjust for sticky nav
-                                behavior: 'smooth'
-                            });
-                            // Update active state
-                            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-                            this.classList.add('active');
-                        }
+                        scrollToId(targetId);
                     });
                 });
 

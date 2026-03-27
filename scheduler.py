@@ -1,6 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import asyncio
 import json
 import pandas as pd
@@ -35,6 +35,34 @@ from datetime import timezone, timedelta
 jst = timezone(timedelta(hours=9), name='JST')
 
 scheduler = AsyncIOScheduler(timezone=jst)
+
+async def calculate_rsi_14(repo, symbol: str, current_close: float) -> float:
+    # 簡易RSI計算
+    history = await repo.get_latest_prices(symbol, limit=14)
+    if not history:
+        return 50.0
+    
+    prices = [p.close for p in reversed(history)] + [current_close]
+    if len(prices) < 2:
+        return 50.0
+    
+    gains = 0.0
+    losses = 0.0
+    for i in range(1, len(prices)):
+        diff = prices[i] - prices[i-1]
+        if diff > 0:
+            gains += diff
+        else:
+            losses -= diff
+            
+    avg_gain = gains / 14.0
+    avg_loss = losses / 14.0
+    
+    if avg_loss == 0:
+        return 100.0 if gains > 0 else 50.0
+        
+    rs = avg_gain / avg_loss
+    return round(100.0 - (100.0 / (1.0 + rs)), 1)
 
 async def fetch_stock_data_job():
     """
@@ -83,7 +111,7 @@ async def fetch_stock_data_job():
                         "low": float(board.get("LowPrice", 0)),
                         "close": p_close,
                         "volume": int(board.get("TradingVolume", 0)),
-                        "rsi_14": 50.0 # Placeholder
+                        "rsi_14": await calculate_rsi_14(repo, symbol, p_close)
                     }
                 
                 # 2. Save to DB (exclude name as it's not in prices table)
@@ -129,11 +157,13 @@ async def run_daily_analysis():
         
         batch_input = []
         for symbol in db_watchlist:
+            stock_master = await repo.get_or_create_stock(symbol) # Get name
             history = await repo.get_latest_prices(symbol, limit=5)
             if history:
                 latest = history[0]
                 batch_input.append({
                     "symbol": symbol,
+                    "name": stock_master.name,
                     "price": latest.close,
                     "volume": latest.volume,
                     "rsi": latest.rsi_14
@@ -153,12 +183,21 @@ async def run_daily_analysis():
 
         # 3. Sync Screening Results to Sheets
         results_df = pd.DataFrame(screen_results)
+        # カラム名を日本語に変換して保存
+        df_display = results_df.rename(columns={
+            "symbol": "銘柄コード",
+            "name": "銘柄名",
+            "score": "AIスコア",
+            "tag": "判定",
+            "comment": "分析コメント"
+        })
+        
         try:
             root_id, folder_map = drive_mgr.setup_system_folders()
             sheets_mgr.write_dataframe(
                 spreadsheet_title="Master_Watchlist",
                 sheet_name="AI_Screening_Results",
-                df=results_df,
+                df=df_display,
                 folder_id=folder_map.get("01_Market_Data")
             )
             print("Batch results synced to Google Sheets.")
@@ -284,40 +323,71 @@ async def generate_daily_consolidated_prompt():
 async def run_edinet_scan():
     """
     Daily job: Scan EDINET for relevant documents.
+    Now expanded to include Watchlist + Top 50 AI-scored stocks.
     """
     print(f"[{datetime.now()}] Starting EDINET Scan Job...")
     async with AsyncSessionLocal() as session:
         repo = StockRepository(session)
-        target_symbols = await repo.get_watchlist_symbols()
         
-        docs = await edinet_client.get_documents_on_date()
-        relevant = await edinet_client.filter_relevant_documents(docs, target_symbols)
+        # 1. Target Symbols: Watchlist + Recent Top Performers
+        watchlist_symbols = await repo.get_watchlist_symbols()
+        top_ai_data = await repo.get_top_ai_stocks(limit=50)
+        top_ai_symbols = [s['symbol'] for s in top_ai_data if s['ai_score'] >= 6.5]
         
-        for doc in relevant:
-            print(f"New Document Found: {doc['symbol']} - {doc['title']}")
-            
-            # Phase 1.4: Fetch actual document text for deeper content analysis
-            doc_text = await edinet_client.get_document_text(doc['docID'])
-            snippet = (doc['title'] + "\n" + doc_text)[:4000] # Combine title and text
-            
-            # Phase 1.5: Local LLM Screening with full context
-            screening = await local_agent.screen_document(doc['symbol'], doc['title'], content_snippet=snippet)
-            
-            if screening.get("is_important"):
-                print(f"-> [IMPORTANT] Local LLM tagged for deep analysis: {screening.get('reason')}")
-                # Save Detailed Disclosure Report to Workspace
-                report_content = f"# 重要開示レポート: {doc['title']}\n\n"
-                report_content += f"**銘柄**: {doc['symbol']}\n"
-                report_content += f"**タイトル**: {doc['title']}\n"
-                report_content += f"**判定理由**: {screening.get('reason')}\n\n"
-                report_content += "---"
-                workspace_mgr.save_report(f"Disclosure_{doc['symbol']}", report_content)
+        target_symbols = list(set(watchlist_symbols + top_ai_symbols))
+        print(f"EDINET Watchlist: {len(target_symbols)} symbols (Watchlist:{len(watchlist_symbols)}, TopAI:{len(top_ai_symbols)})")
+        
+        # 2. Date check: Try Today, fallback to Yesterday if today yields nothing
+        # (Useful for early morning runs or late submissions)
+        search_dates = [date.today(), date.today() - timedelta(days=1)]
+        
+        from edinet_client import EdinetClient
+        e_client = EdinetClient()
+        
+        any_found = False
+        for target_date in search_dates:
+            print(f"Checking EDINET for date: {target_date}...")
+            docs = await e_client.get_documents_on_date(target_date)
+            if not docs:
+                print(f"No documents found on {target_date}.")
+                continue
                 
-                await repo.add_stock_note(doc['symbol'], f"重要開示({screening.get('priority')}): {doc['title']} - {screening.get('reason')}")
-                # In next step, we could trigger agent.analyze with higher priority here
-            else:
-                print(f"-> [SKIP] Local LLM deemed not urgent: {screening.get('reason')}")
-                await repo.add_stock_note(doc['symbol'], f"開示: {doc['title']} (AI判定: 低優先)")
+            relevant = await e_client.filter_relevant_documents(docs, target_symbols)
+            if not relevant:
+                print(f"No relevant disclosures for target stocks on {target_date} among {len(docs)} documents.")
+                continue
+
+            for doc in relevant:
+                any_found = True
+                print(f"New Document Found: {doc['symbol']} - {doc['title']}")
+                
+                # Fetch actual document text for deeper content analysis
+                doc_text = await e_client.get_document_text(doc['docID'])
+                snippet = (doc['title'] + "\n" + doc_text)[:4000] 
+                
+                # Local LLM Screening with full context
+                screening = await local_agent.screen_document(doc['symbol'], doc['title'], content_snippet=snippet)
+                
+                if screening.get("is_important") or screening.get("priority") in ["high", "medium"]:
+                    print(f"-> [IMPORTANT] AI tagged for report: {screening.get('reason')}")
+                    # Save Detailed Disclosure Report to Workspace
+                    report_content = f"# 重要開示レポート: {doc['title']}\n\n"
+                    report_content += f"**銘柄**: {doc['symbol']}\n"
+                    report_content += f"**判定日時**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+                    report_content += f"**判定理由**: {screening.get('reason')}\n\n"
+                    report_content += "---"
+                    workspace_mgr.save_report(f"Disclosure_{doc['symbol']}", report_content)
+                    
+                    await repo.add_stock_note(doc['symbol'], f"重要開示({screening.get('priority')}): {doc['title']}")
+                else:
+                    print(f"-> [SKIP] AI deemed not urgent for {doc['symbol']}: {screening.get('reason')}")
+                    await repo.add_stock_note(doc['symbol'], f"開示: {doc['title']} (AI判定: {screening.get('priority')})")
+            
+            if any_found:
+                break # Found stuff for today/yesterday, stop searching back
+
+        if not any_found:
+            print("EDINET Scan finished: No relevant important documents found.")
 
 async def full_sync_job():
     """
@@ -325,16 +395,32 @@ async def full_sync_job():
     """
     print(f"[{datetime.now()}] Starting Full Workspace Sync to Drive...")
     try:
+        from drive_manager import drive_mgr
         drive_mgr.full_workspace_sync()
         print("Full workspace sync completed.")
     except Exception as e:
         print(f"Full workspace sync failed: {e}")
+
+from market_context import market_fetcher
+
+async def update_market_context_job():
+    """Fetches and saves latest market indices and news (2x per day)."""
+    print(f"[{datetime.now()}] Updating Market Context...")
+    try:
+        market_fetcher.save_context()
+        print("Market Context updated successfully.")
+    except Exception as e:
+        print(f"Failed to update market context: {e}")
 
 def start_scheduler():
     # Fetch & Sync to Sheets: Every 10 minutes (for production realism)
     trigger_fetch = CronTrigger(minute="*/10", timezone=jst) 
     scheduler.add_job(fetch_stock_data_job, trigger_fetch)
     
+    # Market Context Update (Indices/News): 08:30 and 12:30 JST
+    scheduler.add_job(update_market_context_job, CronTrigger(hour=8, minute=30, timezone=jst))
+    scheduler.add_job(update_market_context_job, CronTrigger(hour=12, minute=30, timezone=jst))
+
     # AI Analysis Pipeline: Every day at 16:10 JST
     trigger_analyze = CronTrigger(hour=16, minute=10, timezone=jst)
     scheduler.add_job(run_daily_analysis, trigger_analyze)
@@ -352,7 +438,8 @@ def start_scheduler():
     scheduler.add_job(full_sync_job, trigger_sync)
     
     scheduler.start()
-    print("Scheduler Started with Google Workspace Sync and AI Pipeline.")
+    print("Scheduler Started with Market Context Updates and AI Pipeline.")
     
-    # Trigger initial scan on startup to ensure data exists
+    # Trigger initial scans on startup to ensure data exists
+    asyncio.create_task(update_market_context_job())
     asyncio.create_task(run_edinet_scan())

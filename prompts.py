@@ -72,7 +72,7 @@ def generate_bulk_analysis_prompt(stocks: list[StockData]) -> str:
 - 各銘柄について「選定理由」と「短期的な目標/注意点」をMarkdown形式で簡潔に出力してください。
 """
 
-def generate_notebooklm_context(stocks: list[StockData], reports: list, scanner_results: list = None) -> str:
+def generate_notebooklm_context(stocks: list[StockData], reports: list, scanner_results: list = None, market_context: dict = None) -> str:
     """Generates a comprehensive Markdown for NotebookLM including market context and AI insights."""
     from datetime import datetime
     import json
@@ -80,6 +80,27 @@ def generate_notebooklm_context(stocks: list[StockData], reports: list, scanner_
     content = "# 市場監視インテリジェンス - NotebookLM用統合データ\n\n"
     content += f"生成日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (JST)\n\n"
     
+    # 0. Market Context
+    if market_context:
+        content += "## 0. 市場概況 (Market Context)\n"
+        indices = market_context.get("indices", {})
+        if indices:
+            content += "### 主要インデックス\n"
+            for name, val in indices.items():
+                content += f"- **{name}**: {val['value']} ({val['change']} | {val['change_pct']}%)\n"
+            content += "\n"
+            
+        news = market_context.get("news", [])
+        if news:
+            content += "### トップニュース\n"
+            for n in news[:5]:
+                content += f"- {n['title']}\n"
+            content += "\n"
+            
+        trends = market_context.get("trends", [])
+        if trends:
+            content += f"- **注目ワード**: {', '.join(trends)}\n\n"
+
     # 1. Market Overview Table
     content += "## 1. 監視銘柄マーケット状況\n"
     content += "| 銘柄 | コード | 現在値 | 前日比 | RSI | PER | PBR | AIスコア |\n"
@@ -131,16 +152,34 @@ def generate_quick_alert(stock: StockData) -> str:
     reason = "急騰/急落" if abs(stock.change_percent) > 3 else "出来高急増"
     return f"【{stock.symbolname}】{reason}検知！ 現在:{stock.currentprice}円 ({stock.change_percent}%)"
 
-def generate_consolidated_gemini_prompt(stocks_data: list[dict]) -> str:
+def generate_consolidated_gemini_prompt(stocks_data: list[dict], market_context: dict = None) -> str:
     """
-    Generates a massive synthesis prompt for Gemini.
-    stocks_data: List of dicts, each containing:
-      - stock: StockData
-      - report: AnalysisReport (latest)
-      - notes: List[StockNote]
+    Generates a massive synthesis prompt for Gemini, including Market Context.
     """
     sections = []
     
+    # 1. Market Context Section
+    context_str = "## 市場概況 (Market Context)\n"
+    if market_context:
+        context_str += f"- **取得日時**: {market_context.get('timestamp', '不明')}\n"
+        indices = market_context.get("indices", {})
+        for name, val in indices.items():
+            context_str += f"- {name}: {val['value']} ({val['change']} | {val['change_pct']}%)\n"
+        
+        context_str += "\n### 主要ニュース & トレンド\n"
+        news = market_context.get("news", [])
+        for n in news[:8]: # Increase to top 8
+            context_str += f"- {n['title']} ({n['published']})\n"
+        
+        trends = market_context.get("trends", [])
+        if trends:
+            context_str += f"- **注目ワード**: {', '.join(trends)}\n"
+    else:
+        context_str += "※今回の市場環境データはありません。既存の個別銘柄データのみで分析してください。\n"
+    
+    sections.append(context_str)
+
+    # 2. Individual Stocks Section
     for item in stocks_data:
         s = item['stock']
         r = item['report']
@@ -152,7 +191,9 @@ def generate_consolidated_gemini_prompt(stocks_data: list[dict]) -> str:
         if r:
             symbol_section += f"- **AI詳細分析 (前回)**: スコア {r.score}/10, 要約: {r.summary}\n"
             if r.trade_strategy:
-                symbol_section += f"- **ローカルAI売買戦略**: \n{r.trade_strategy}\n"
+                # Truncate if too long to keep prompt readable
+                strategy = r.trade_strategy[:1000]
+                symbol_section += f"- **ローカルAI売買戦略**: \n{strategy}\n"
         
         if notes:
             symbol_section += "- **EDINET/開示情報からの知見**:\n"
@@ -164,20 +205,21 @@ def generate_consolidated_gemini_prompt(stocks_data: list[dict]) -> str:
     all_sections = "\n---\n".join(sections)
     
     return f"""
-# 銘柄群の総合投資戦略コンサルティング依頼
+# 銘柄群の「総合投資戦略」マスターコンサルティング依頼
 
-あなたはプロのヘッジファンドマネージャー兼シニアアナリストです。
-以下のウォッチリスト銘柄群（計{len(stocks_data)}銘柄）について、提供された「数値データ」「過去のAI詳細分析」「ローカルAIによる売買戦略」「EDINET等の開示情報」をすべて統合し、
-『今週〜来週にかけての具体的な集中的な投資戦略』を提案してください。
+あなたはプロのヘッジファンドマネージャー、シニアアナリスト、兼マクロ経済学者です。
+提供された「現在の市場全体状況（コンテキスト）」「個別銘柄データ」「過去のAI詳細分析」「ローカルAIによる売買戦略」「EDINET等の開示情報」をすべて統合し、
+『今、最も勝算の高い具体的な投資シナリオ』を日本語で詳細に提示してください。
 
 ## 依頼内容
-1. **マクロ・ミクロの統合判断**: 銘柄ごとの個別材料（EDINET等）と需給（ローカル戦略の視点）を組み合わせ、どの銘柄が「最も確度が高い」かを選別してください。
-2. **ポートフォリオの最適化**: これらの銘柄の中で、資金を集中させるべき「本命」と、ヘッジまたは様子見すべき「懸念」を分けてください。
-3. **具体的なトレード指示**: 共通する地合いやセクターの強弱も考慮し、総合的な売買シナリオ（買い／中立／売り）を日本語で詳細に提示してください。
+1. **マクロ・ミクロの統合判断**: 指数やニュースの地合いと、個別の銘柄材料を組み合わせ、現在の相場局面（リスクオン/オフ）においてどの銘柄を優先すべきか決定してください。
+2. **期待値によるランク付け**: 需給、テクニカル、ファンダメンタルズ、および最新の開示情報を踏まえ、期待値の高い順にアクション（買い/キープ/売り）を明示してください。
+3. **具体的なトレード指示**: エントリーポイントの考え方、ターゲット（利確）水準、および撤退（損切り）条件について、プロの視点で助言してください。
+4. **地政学・政策リスクへの言及**: 市場概況にある重要ニュースが、提示した銘柄にどう影響するか考慮してください。
 
 ---
 {all_sections}
 ---
 
-※回答はプロフェッショナルかつ実戦的なトーンで、Markdown形式でお願いします。
+※回答は実戦的かつ客観的なトーンで、Markdown形式で出力してください。
 """

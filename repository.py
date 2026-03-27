@@ -16,8 +16,9 @@ class StockRepository:
         if name and any(k in name for k in invalid_keywords):
             name = "Unknown"
 
-        # Try to get best name from local map if Unknown
-        if name == "Unknown" or not name:
+        # Try to get best name from local map if Unknown or placeholder
+        is_placeholder = not name or name == "Unknown" or name.startswith("銘柄") or name == symbol
+        if is_placeholder:
             import json
             import os
             try:
@@ -27,6 +28,7 @@ class StockRepository:
                         name_map = json.load(f)
                         if symbol in name_map:
                             name = name_map[symbol]
+                            is_placeholder = False
             except:
                 pass
 
@@ -39,10 +41,13 @@ class StockRepository:
             self.session.add(stock)
             await self.session.commit()
             await self.session.refresh(stock)
-        elif name != "Unknown" and (stock.name == "Unknown" or "Mock" in stock.name or stock.name.startswith("銘柄")):
-            stock.name = name
-            await self.session.commit()
-            await self.session.refresh(stock)
+        else:
+            # Update name if the current one is placeholder but we have a real name
+            current_is_placeholder = not stock.name or stock.name == "Unknown" or "Mock" in stock.name or stock.name.startswith("銘柄") or stock.name == symbol
+            if current_is_placeholder and not is_placeholder:
+                stock.name = name
+                await self.session.commit()
+                await self.session.refresh(stock)
         return stock
 
     async def get_all_stocks(self) -> list[StockMaster]:
@@ -82,12 +87,17 @@ class StockRepository:
         return result.scalars().all()
 
     async def add_to_watchlist(self, symbol: str):
-        # Additional step to ensure stock exists
+        # 1. Ensure stock master exists
         await self.get_or_create_stock(symbol)
         from models_db import UserWatchlist
-        watchlist_item = UserWatchlist(symbol=symbol)
-        self.session.add(watchlist_item)
-        await self.session.commit()
+        
+        # 2. Check if already in watchlist to avoid IntegrityError (PK collision)
+        stmt = select(UserWatchlist).where(UserWatchlist.symbol == symbol)
+        result = await self.session.execute(stmt)
+        if not result.scalar_one_or_none():
+            watchlist_item = UserWatchlist(symbol=symbol)
+            self.session.add(watchlist_item)
+            await self.session.commit()
 
     async def remove_from_watchlist(self, symbol: str):
         from models_db import UserWatchlist

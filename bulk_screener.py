@@ -31,6 +31,7 @@ class BulkScreener:
         # Ensure we use Gemini 2.0 Flash for efficiency/free tier
         self.gemini_agent = GeminiAgent(model_id="gemini-2.0-flash-exp") 
         self.is_running = False
+        self.is_ai_running = False
         self.state_file = "workspace/System_Config/scan_state.json"
         self._ensure_state_dir()
 
@@ -42,6 +43,7 @@ class BulkScreener:
         state = self._load_state()
         return {
             "is_running": self.is_running,
+            "is_ai_running": self.is_ai_running,
             "last_scan_at": state.get("last_scan_at"),
             "last_scan_count": state.get("last_scan_count", 0)
         }
@@ -185,6 +187,7 @@ class BulkScreener:
 
             
             self.is_running = True
+            self.is_ai_running = True
             logger.info(f"Starting Local AI Screening for {len(target_stocks)} items...")
             jst = timezone(timedelta(hours=9))
             
@@ -245,6 +248,7 @@ class BulkScreener:
             return {"error": str(e)}
         finally:
             self.is_running = False
+            self.is_ai_running = False
 
     async def run_market_scan(self, thinking_level: str = "standard"):
         """

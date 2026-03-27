@@ -193,16 +193,23 @@ async def get_stock_data_with_fallback(symbol: str, repo: StockRepository) -> St
             data.volume = p.volume
             data.high = p.high
             data.low = p.low
-            data.rsi = p.rsi_14
+            
+            # 初期ダミー値(50.0)でなく、有効な過去RSIがあれば上書きする
+            if p.rsi_14 not in [None, 50.0]:
+                data.rsi = p.rsi_14
     
     # Ensure RSI is present from DB if API didn't provide it
     if data.rsi is None:
         try:
             latest_prices = await repo.get_latest_prices(symbol, limit=1)
-            if latest_prices:
-                data.rsi = latest_prices[0].rsi_14
+            db_rsi = latest_prices[0].rsi_14 if latest_prices else None
+            # DBに有効なRSIがあればそれを使う。そうでなければダミーとしてモックのRSIを代入する
+            if db_rsi not in [None, 50.0]:
+                data.rsi = db_rsi
+            else:
+                data.rsi = api_client._generate_mock_data(symbol).rsi
         except:
-            pass
+            data.rsi = api_client._generate_mock_data(symbol).rsi
 
     # 3. Ensure fundamental data (PER/PBR/Yield) is present for screening
     # Use cached or fresh symbol info if missing
@@ -448,8 +455,23 @@ async def export_notebooklm(request: ExportRequest = None, username: str = Depen
         except:
             pass
 
+        # Fetch market context for NotebookLM
+        from market_context import market_fetcher
+        market_context = market_fetcher.get_latest_context()
+        if not market_context:
+            try:
+                market_context = market_fetcher.save_context()
+            except Exception as e:
+                logger.error(f"Failed to fetch market context for NotebookLM: {e}")
+                market_context = None
+
         # 4. Generate Content using the new prompt function
-        content = prompts.generate_notebooklm_context(stock_data_list, reports_list, scanner_results)
+        content = prompts.generate_notebooklm_context(
+            stock_data_list, 
+            reports_list, 
+            scanner_results, 
+            market_context=market_context
+        )
             
     return {"prompt": content}
 
@@ -821,41 +843,177 @@ async def get_explorer_page(username: str = Depends(authenticate)):
         return f.read()
 
 @app.get("/api/workspace/files")
-async def list_workspace_files(category: str = None, username: str = Depends(authenticate)):
-    """Returns a list of local files in the workspace hub."""
+async def list_workspace_files(category: str = None, start_date: str = None, end_date: str = None, pattern: str = None, username: str = Depends(authenticate)):
+    """Returns a list of local files in the workspace with filtering."""
     from workspace_manager import workspace_mgr
-    return workspace_mgr.list_files(category)
+    return workspace_mgr.list_files(category, start_date, end_date, pattern)
 
 @app.get("/api/workspace/structure")
-async def get_workspace_structure(username: str = Depends(authenticate)):
-    """Returns the full hierarchical structure of the workspace."""
-    from workspace_manager import workspace_mgr
-    # Use absolute path for workspace directory
+async def get_workspace_structure(start_date: str = None, end_date: str = None, pattern: str = None, username: str = Depends(authenticate)):
+    """Returns the hierarchical structure of the workspace, supporting filtering."""
+    # Convert dates for filtering
+    jst = timezone(timedelta(hours=9))
+    start_dt = datetime.fromisoformat(start_date).replace(tzinfo=jst) if start_date else None
+    end_dt = datetime.fromisoformat(end_date).replace(tzinfo=jst) if end_date else None
+    if end_dt:
+        end_dt = end_dt.replace(hour=23, minute=59, second=59)
+
     base_dir = os.path.abspath("workspace")
     
     def get_dir_tree(path, base_url):
         tree = []
         if not os.path.exists(path): return tree
         for item in os.listdir(path):
+            if item.startswith("."): continue # Skip hidden files like .git or .DS_Store
+            
             full_path = os.path.join(path, item)
             is_dir = os.path.isdir(full_path)
+            
             node = {
                 "name": item,
                 "is_dir": is_dir,
                 "path": f"{base_url}/{item}"
             }
+            
             if is_dir:
-                node["children"] = get_dir_tree(full_path, f"{base_url}/{item}")
+                children = get_dir_tree(full_path, f"{base_url}/{item}")
+                # If filtering is active, only include non-empty folders
+                if (start_dt or end_dt or pattern) and not children:
+                    continue
+                node["children"] = children
+                tree.append(node)
             else:
+                # File filtering
+                if pattern and pattern not in item:
+                    continue
+                    
                 stats = os.stat(full_path)
-                # Apply JST timezone to the timestamp
                 mtime_jst = datetime.fromtimestamp(stats.st_mtime, tz=jst)
+                
+                if start_dt and mtime_jst < start_dt:
+                    continue
+                if end_dt and mtime_jst > end_dt:
+                    continue
+                
                 node["mtime"] = mtime_jst.isoformat()
                 node["size"] = stats.st_size
-            tree.append(node)
+                tree.append(node)
+                
         return sorted(tree, key=lambda x: (not x["is_dir"], x["name"]))
 
     return get_dir_tree(base_dir, "/workspace")
+
+@app.get("/api/workspace/file_content")
+async def get_workspace_file_content(path: str, username: str = Depends(authenticate)):
+    """Returns the content of a specific workspace file."""
+    # Safety check: ensure path is within workspace
+    if ".." in path or not path.startswith("/workspace/"):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    
+    # Map relative web path to local filesystem
+    local_path = path.strip("/").replace("workspace/", "workspace/", 1)
+    if not os.path.exists(local_path):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    try:
+        with open(local_path, "r", encoding="utf-8-sig") as f:
+            content = f.read()
+        return {"content": content, "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/workspace/move_to_trash")
+async def move_to_trash_api(request: dict, username: str = Depends(authenticate)):
+    from workspace_manager import workspace_mgr
+    path = request.get("path")
+    if workspace_mgr.move_to_trash(path):
+        return {"status": "success"}
+    raise HTTPException(status_code=400, detail="Failed to move to trash")
+
+@app.post("/api/workspace/bulk_move_to_trash")
+async def bulk_move_to_trash_api(request: dict, username: str = Depends(authenticate)):
+    from workspace_manager import workspace_mgr
+    paths = request.get("paths", [])
+    results = workspace_mgr.bulk_move_to_trash(paths)
+    return results
+
+@app.post("/api/workspace/restore")
+async def restore_workspace_file(request: dict, username: str = Depends(authenticate)):
+    """Restores a file from trash."""
+    from workspace_manager import workspace_mgr
+    path = request.get("path")
+    if not path:
+        raise HTTPException(status_code=400, detail="Path is required")
+    if workspace_mgr.restore_file(path):
+        return {"status": "success"}
+    raise HTTPException(status_code=404, detail="File not found or not in trash")
+
+@app.post("/api/workspace/bulk_restore")
+async def bulk_restore_workspace_files(request: dict, username: str = Depends(authenticate)):
+    """Restores multiple files from trash."""
+    from workspace_manager import workspace_mgr
+    paths = request.get("paths", [])
+    results = workspace_mgr.bulk_restore(paths)
+    return results
+
+@app.delete("/api/workspace/delete_permanent")
+async def delete_permanent_api(path: str, username: str = Depends(authenticate)):
+    from workspace_manager import workspace_mgr
+    if workspace_mgr.delete_file(path):
+        return {"status": "success"}
+    raise HTTPException(status_code=400, detail="Failed to delete")
+
+@app.post("/api/workspace/bulk_delete_permanent")
+async def bulk_delete_permanent_api(request: dict, username: str = Depends(authenticate)):
+    from workspace_manager import workspace_mgr
+    paths = request.get("paths", [])
+    results = workspace_mgr.bulk_delete(paths)
+    return results
+
+@app.post("/api/workspace/archive/prepare")
+async def prepare_archive_prompt(request: dict, username: str = Depends(authenticate)):
+    """
+    Takes a list of MD/CSV files and generates a consolidation prompt for Gemini.
+    """
+    from workspace_manager import workspace_mgr
+    paths = request.get("paths", [])
+    if not paths:
+        raise HTTPException(status_code=400, detail="No files selected")
+        
+    consolidated_content = ""
+    for path in paths:
+        local_path = path.strip("/").replace("workspace/", "workspace/", 1)
+        if os.path.exists(local_path):
+            filename = os.path.basename(local_path)
+            try:
+                with open(local_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    consolidated_content += f"\n\n--- FILE: {filename} ---\n{content}"
+            except:
+                continue
+                
+    prompt = f"""以下の複数の分析レポートおよびデータ（計{len(paths)}件）を読み込み、この期間の活動や市場動向を統合した「サマリーレポート」を日本語で作成してください。
+
+目的：
+- 古い個別データを削除し、この1つのサマリーに集約してアーカイブ化すること。
+- 次回の分析で「前回の振り返り」として直接利用可能な、数値的根拠を含むデータセットを作成すること。
+
+構成案：
+1. 【期間の概況】対象期間の全体的な地合い（日経平均等の動き）
+2. 【注目銘柄の推移】特に動きのあった銘柄について、以下の数値を必ず含めてください：
+    - 銘柄名/コード
+    - 期間中の騰落率、最終価格
+    - RSI等のテクニカル指標の推移
+    - 特筆すべき出来高の変化
+3. 【知見と教訓】成功・失敗のパターン、次回の戦略に活かすべきポイント
+4. 【結論】この期間を象徴する一言と、次の期間への展望
+
+[対象データ]
+{consolidated_content}
+
+出力はMarkdown形式で、特に数値データ表などはそのままコピペして次回の分析プロンプトに流用しやすい形式にしてください。"""
+
+    return {"prompt": prompt, "file_count": len(paths)}
 
 @app.get("/api/workspace/links")
 async def get_workspace_links(username: str = Depends(authenticate)):
@@ -898,6 +1056,7 @@ async def get_scanner_results(type: str = "ranking", exchange: str = "ALL", user
     """
     async with AsyncSessionLocal() as session:
         repo = StockRepository(session)
+        db_watchlist = await repo.get_watchlist_symbols()
         
         # 1. New: "last_scan" based on CSV
         if type == "last_scan":
@@ -936,7 +1095,7 @@ async def get_scanner_results(type: str = "ranking", exchange: str = "ALL", user
                                 "dividend_yield": _safe_float(row.get("利回り")),
                                 "ai_score": report.score if report else (_safe_float(row.get("AIスコア")) or 0.0),
                                 "ai_summary": report.summary if report else str(row.get("AI要約", "")),
-                                "is_watched": False 
+                                "is_watched": symbol in db_watchlist 
                             }
                             results.append(stock_dict)
                         
@@ -970,6 +1129,7 @@ async def get_scanner_results(type: str = "ranking", exchange: str = "ALL", user
                                 s.symbolname = master.name
 
                     stock_dict = s.dict()
+                    stock_dict["is_watched"] = s.symbol in db_watchlist
                     if report:
                         stock_dict["ai_score"] = report.score
                         stock_dict["ai_summary"] = report.summary
@@ -984,6 +1144,8 @@ async def get_scanner_results(type: str = "ranking", exchange: str = "ALL", user
         
         # 2. Default/Fallback: Fetch top 50 stocks sorted by AI score
         stocks = await repo.get_top_ai_stocks(limit=50)
+        for s in stocks:
+            s["is_watched"] = s["symbol"] in db_watchlist
         return stocks
 
 @app.get("/api/admin/scan-status")
@@ -1200,11 +1362,21 @@ async def run_bulk_local_trade_analysis(symbols: list[str]):
             # 2. Call Local AI
             analysis = await agent.generate_response(prompt)
             
-            # 3. Save to DB (Use a fresh session per symbol to avoid poisoned transactions)
             async with AsyncSessionLocal() as session:
                 repo = StockRepository(session)
                 await repo.update_latest_trade_strategy(symbol, analysis)
-            logger.info(f"[{i+1}/{total}] Local trade analysis saved for {symbol}")
+            
+            # 4. Automate File Saving to workspace/Trading_Strategies
+            from workspace_manager import workspace_mgr
+            import re
+            safe_symbol = re.sub(r'[^a-zA-Z0-9_\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]', "", symbol)
+            filename = f"{safe_symbol}_Strategy_{datetime.now().strftime('%Y%m%d_%H%M')}.md"
+            path = workspace_mgr.get_path("strategies", filename)
+            
+            with open(path, "w", encoding="utf-8-sig") as f:
+                f.write(analysis)
+                
+            logger.info(f"[{i+1}/{total}] Local trade analysis saved for {symbol} (DB & File: {path})")
             
         except Exception as e:
             logger.error(f"Failed bulk trade analysis for {symbol}: {e}")
@@ -1224,56 +1396,144 @@ async def trigger_bulk_local_trade(background_tasks: BackgroundTasks, username: 
             symbols = settings.WATCHLIST
     
     background_tasks.add_task(run_bulk_local_trade_analysis, symbols)
-    return {"message": f"Bulk local AI trade analysis started for {len(symbols)} stocks."}
+    return {"message": f"ウォッチリストの {len(symbols)} 銘柄に対して、ローカルAIによる売買戦略の一括分析を開始しました。"}
 
 @app.get("/api/consolidated_prompt")
 async def get_consolidated_prompt(username: str = Depends(authenticate)):
     """
-    Generates (or returns cached) massive synthesis prompt for all watchlist stocks.
+    Generates (or returns cached) massive synthesis prompt for all watchlist stocks,
+    including latest market context (indices, news, trends).
     """
     import os
     from workspace_manager import workspace_mgr
+    from market_context import market_fetcher
     
-    # 1. Check for background-generated cache (from overnight scan)
-    cache_path = workspace_mgr.get_path("config", "Consolidated_Prompt.txt")
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            if content:
-                print(f"[API] Returning cached consolidated prompt from {cache_path}")
-                return {"prompt": content, "cached": True}
-        except Exception as e:
-            print(f"Error reading prompt cache: {e}")
+    try:
+        # Get latest market context
+        market_context = market_fetcher.get_latest_context()
+        if not market_context:
+            logger.info("Market context not found locally. Fetching now...")
+            try:
+                market_context = market_fetcher.save_context()
+            except Exception as e:
+                logger.error(f"Failed to fetch market context: {e}")
+                market_context = None
 
-    # 2. Fallback to on-demand generation
-    print("[API] No cache found. Generating consolidated prompt on-demand...")
-    async with AsyncSessionLocal() as session:
-        repo = StockRepository(session)
-        symbols = await repo.get_watchlist_symbols()
-        if not symbols:
-            symbols = settings.WATCHLIST
-            
-        stocks_data = []
-        for symbol in symbols:
-            # 1. Current Market Data
-            stock_data = await get_stock_data_with_fallback(symbol, repo)
-            
-            # 2. Latest AI Report (contains Gemini score/summary AND Local Trade Strategy)
-            report = await repo.get_latest_analysis(symbol)
-            
-            # 3. EDINET/Disclosure Notes
-            from sqlalchemy import select, desc
-            from models_db import StockNote
-            stmt = select(StockNote).where(StockNote.symbol == symbol).order_by(desc(StockNote.created_at)).limit(3)
-            res = await session.execute(stmt)
-            notes = res.scalars().all()
-            
-            stocks_data.append({
-                "stock": stock_data,
-                "report": report,
-                "notes": notes
-            })
-            
-        prompt = prompts.generate_consolidated_gemini_prompt(stocks_data)
-        return {"prompt": prompt, "count": len(stocks_data)}
+        from sqlalchemy import select, desc
+        from models_db import StockNote
+
+        async with AsyncSessionLocal() as session:
+            repo = StockRepository(session)
+            symbols = await repo.get_watchlist_symbols()
+            if not symbols:
+                symbols = settings.WATCHLIST
+                
+            stocks_data = []
+            for symbol in symbols:
+                try:
+                    stock_data = await get_stock_data_with_fallback(symbol, repo)
+                    report = await repo.get_latest_analysis(symbol)
+                    
+                    stmt = select(StockNote).where(StockNote.symbol == symbol).order_by(desc(StockNote.created_at)).limit(3)
+                    res = await session.execute(stmt)
+                    notes = res.scalars().all()
+                    
+                    stocks_data.append({
+                        "stock": stock_data,
+                        "report": report,
+                        "notes": notes
+                    })
+                except Exception as inner_e:
+                    logger.warning(f"Skipping {symbol} in consolidated prompt due to: {inner_e}")
+                    continue
+                
+            prompt = prompts.generate_consolidated_gemini_prompt(stocks_data, market_context=market_context)
+            return {"prompt": prompt, "count": len(stocks_data), "market_context": market_context}
+    except Exception as e:
+        logger.error(f"Consolidated prompt generation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/market_analysis/save")
+async def save_market_analysis(request: dict, username: str = Depends(authenticate)):
+    """
+    Saves a general market analysis result to workspace/Market_Analysis.
+    """
+    from workspace_manager import workspace_mgr
+    title = request.get("title", "GeneralMarketAnalysis")
+    filename = request.get("filename")
+    content = request.get("content", "")
+    overwrite = request.get("overwrite", False)
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+        
+    # Standard naming rule if filename not provided: analysis_YYYYMMDD_HHMM.md
+    if not filename:
+        filename = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M')}.md"
+    
+    # Ensure .md extension
+    if not filename.endswith(".md"):
+        filename += ".md"
+        
+    # Sanitize filename (remove dangerous characters)
+    import re
+    filename = re.sub(r'[\\/*?:"<>|]', "_", filename)
+    
+    # Create specific path for Market_Analysis folder
+    path = workspace_mgr.get_path("analysis", filename)
+    
+    # Overwrite check
+    if os.path.exists(path) and not overwrite:
+        logger.info(f"Conflict detected for file: {path}")
+        return JSONResponse(status_code=409, content={"status": "conflict", "message": "同名のファイルが既に存在します。上書きしますか？"})
+
+    with open(path, "w", encoding="utf-8-sig") as f:
+        f.write(content)
+        
+    # Trigger a background sync if possible, or just wait for scheduled one
+    print(f"Market analysis saved to {path}")
+    return {"message": "Analysis saved successfully", "path": path}
+
+@app.get("/api/market_analysis/history")
+async def get_market_analysis_history(username: str = Depends(authenticate)):
+    """
+    Returns a list of saved market analysis files.
+    """
+    from workspace_manager import workspace_mgr
+    files = workspace_mgr.list_files(category="analysis")
+    return {"history": files}
+
+@app.post("/api/strategy/save")
+async def save_strategy_result(request: dict, username: str = Depends(authenticate)):
+    """
+    Saves a trading strategy analysis result (Gemini response) to workspace/Trading_Strategies.
+    """
+    import os
+    import re
+    from workspace_manager import workspace_mgr
+    
+    symbol = request.get("symbol", "Unknown")
+    content = request.get("content", "")
+    overwrite = request.get("overwrite", False)
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+        
+    # Standard naming: SYMBOL_Strategy_YYYYMMDD_HHMM.md
+    # Ensure symbol is safe for filename
+    safe_symbol = re.sub(r'[^a-zA-Z0-9_\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]', "", symbol)
+    filename = f"{safe_symbol}_Strategy_{datetime.now().strftime('%Y%m%d_%H%M')}.md"
+    
+    # Create specific path for Trading_Strategies folder
+    path = workspace_mgr.get_path("strategies", filename)
+    
+    # Overwrite check
+    if os.path.exists(path) and not overwrite:
+        logger.info(f"Conflict detected for strategy file: {path}")
+        return JSONResponse(status_code=409, content={"status": "conflict", "message": "同名の戦略ファイルが既に存在します。上書きしますか？"})
+
+    with open(path, "w", encoding="utf-8-sig") as f:
+        f.write(content)
+        
+    logger.info(f"Strategy result saved: {path}")
+    return {"status": "success", "file": filename}

@@ -8,8 +8,11 @@ class DriveManager:
         self.sub_folders = [
             "01_Market_Data",
             "02_AI_Daily_Reports",
-            "03_Portfolios",
-            "04_NotebookLM_Context",
+            "03_Trading_Strategies",
+            "04_Portfolios",
+            "05_NotebookLM_Context",
+            "06_Market_Context",
+            "07_Market_Analysis",
             "99_System_Config"
         ]
 
@@ -187,8 +190,11 @@ class DriveManager:
         workspace_root = "workspace"
         mappings = {
             "AI_Reports": "02_AI_Daily_Reports",
+            "Trading_Strategies": "03_Trading_Strategies",
             "Market_Data": "01_Market_Data",
-            "Portfolios": "03_Portfolios"
+            "Portfolios": "04_Portfolios",
+            "Market_Context": "06_Market_Context",
+            "Market_Analysis": "07_Market_Analysis"
         }
         
         for local_sub, remote_sub_name in mappings.items():
